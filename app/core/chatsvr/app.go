@@ -1,0 +1,320 @@
+package chatsvr
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"dschat/app/core/deepseek"
+	"dschat/app/core/model"
+)
+
+type Config struct {
+	DataDir    string
+	Port       int
+	DeviceName string
+}
+
+type Settings struct {
+	APIKey     string
+	BaseURL    string
+	Model      string
+	Thinking   bool
+	Search     bool
+	DeviceName string
+}
+
+type App struct {
+	cfg      Config
+	store    *Store
+	hub      *hub
+	deviceID string
+	device   string
+	token    string
+	port     int
+
+	setMu sync.RWMutex
+	set   Settings
+
+	ctx context.Context
+
+	mu      sync.Mutex
+	active  map[string]*activeTurn
+	sending map[string]bool
+
+	partialMu sync.Mutex
+	partials  map[string]*model.Answer
+
+	syncMu sync.Mutex
+	sync   *Sync
+
+	proxyClient *http.Client
+}
+
+type activeTurn struct {
+	turnID    string
+	cancel    context.CancelFunc
+	stopped   bool
+	preempted bool
+	mu        sync.Mutex
+}
+
+func (a *activeTurn) markStopped() {
+	a.mu.Lock()
+	a.stopped = true
+	a.mu.Unlock()
+}
+
+func (a *activeTurn) markPreempted() {
+	a.mu.Lock()
+	a.preempted = true
+	a.mu.Unlock()
+}
+
+func (a *activeTurn) state() (stopped, preempted bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.stopped, a.preempted
+}
+
+func New(cfg Config) (*App, error) {
+	if cfg.DataDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+		cfg.DataDir = filepath.Join(home, ".dschat", "app")
+	}
+	if cfg.Port == 0 {
+		cfg.Port = 5217
+	}
+	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
+		return nil, err
+	}
+	st, err := OpenStore(cfg.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	a := &App{
+		cfg:         cfg,
+		store:       st,
+		hub:         newHub(),
+		active:      map[string]*activeTurn{},
+		sending:     map[string]bool{},
+		partials:    map[string]*model.Answer{},
+		proxyClient: &http.Client{},
+	}
+	a.deviceID, err = a.ensureKV("device_id", model.NewID())
+	if err != nil {
+		st.Close()
+		return nil, err
+	}
+	name := cfg.DeviceName
+	if name == "" {
+		name, _ = os.Hostname()
+	}
+	a.device, _ = a.ensureKV("device_name", name)
+	if a.device == "" {
+		a.device = name
+	}
+	a.token, err = a.ensureToken()
+	if err != nil {
+		st.Close()
+		return nil, err
+	}
+	a.loadSettings()
+	a.loadSync()
+	return a, nil
+}
+
+func (a *App) Close() error {
+	a.mu.Lock()
+	for _, t := range a.active {
+		t.cancel()
+	}
+	a.active = map[string]*activeTurn{}
+	a.mu.Unlock()
+	return a.store.Close()
+}
+
+func (a *App) ensureKV(k, def string) (string, error) {
+	v, err := a.store.KV(k)
+	if err != nil {
+		return "", err
+	}
+	if v == "" {
+		v = def
+		if err := a.store.SetKV(k, v); err != nil {
+			return "", err
+		}
+	}
+	return v, nil
+}
+
+func (a *App) ensureToken() (string, error) {
+	p := filepath.Join(a.cfg.DataDir, "api-token")
+	if b, err := os.ReadFile(p); err == nil && len(b) >= 32 {
+		return string(b), nil
+	}
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	t := hex.EncodeToString(buf)
+	if err := os.WriteFile(p, []byte(t), 0o600); err != nil {
+		return "", err
+	}
+	return t, nil
+}
+
+func (a *App) loadSettings() {
+	get := func(k string) string { v, _ := a.store.KV(k); return v }
+	a.setMu.Lock()
+	defer a.setMu.Unlock()
+	a.set = Settings{
+		APIKey:     get("api_key"),
+		BaseURL:    orDefault(get("base_url"), deepseek.DefaultBaseURL),
+		Model:      orDefault(get("model"), "deepseek-flash"),
+		Thinking:   get("thinking") == "1",
+		Search:     get("search") == "1",
+		DeviceName: orDefault(get("device_name"), a.device),
+	}
+}
+
+func (a *App) Settings() Settings {
+	a.setMu.RLock()
+	defer a.setMu.RUnlock()
+	return a.set
+}
+
+func (a *App) loadSync() {
+	url, _ := a.store.KV("server_url")
+	token, _ := a.store.KV("server_token")
+	device, _ := a.store.KV("server_device_id")
+	if url != "" && token != "" {
+		a.sync = NewSync(url, token, device)
+	}
+}
+
+func (a *App) Sync() *Sync {
+	a.syncMu.Lock()
+	defer a.syncMu.Unlock()
+	return a.sync
+}
+
+func (a *App) setSync(s *Sync) {
+	a.syncMu.Lock()
+	a.sync = s
+	a.syncMu.Unlock()
+}
+
+func orDefault(v, d string) string {
+	if v == "" {
+		return d
+	}
+	return v
+}
+
+func (a *App) Start(ctx context.Context) error {
+	a.ctx = ctx
+	a.selfCheck()
+
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", a.cfg.Port))
+	if err != nil && a.cfg.Port != 0 {
+		ln, err = net.Listen("tcp", "127.0.0.1:0")
+	}
+	if err != nil {
+		return err
+	}
+	a.port = ln.Addr().(*net.TCPAddr).Port
+
+	srv := &http.Server{Handler: a.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	go func() {
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+			log.Printf("http server: %v", err)
+		}
+	}()
+
+	if s := a.Sync(); s != nil {
+		go s.Run(ctx, a.onRemoteEvent, func() { go a.syncAll(a.baseCtx()) })
+	}
+
+	log.Printf("dschat listening on http://127.0.0.1:%d", a.port)
+	go func() {
+		<-ctx.Done()
+		shutdown, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdown)
+	}()
+	return nil
+}
+
+func (a *App) URL() string {
+	return fmt.Sprintf("http://127.0.0.1:%d/auth?t=%s", a.port, a.token)
+}
+
+func (a *App) selfCheck() {
+	sessions, err := a.store.Sessions()
+	if err != nil {
+		return
+	}
+	for _, s := range sessions {
+		if s.OwnerID != a.deviceID {
+			continue
+		}
+		turns, err := a.store.Turns(s.ID)
+		if err != nil {
+			continue
+		}
+		for _, t := range turns {
+			if t.Answer != nil {
+				continue
+			}
+			if _, _, ok := a.store.LocalOutput(t.ID); ok {
+				continue
+			}
+			if _, has, _ := a.store.AnswerState(t.ID); has {
+				continue
+			}
+			aborted := model.Answer{Status: model.StatusAborted, Blocks: []map[string]any{}, CreatedAt: model.NowMS()}
+			state := SyncLocal
+			if s.SyncState == SyncSynced {
+				state = SyncPending
+			}
+			if err := a.store.PutAnswer(t.ID, aborted, state); err != nil {
+				continue
+			}
+			if s.SyncState == SyncSynced {
+				go func(sessionID, turnID string, ans model.Answer) { _ = a.pushAnswer(sessionID, turnID, ans) }(s.ID, t.ID, aborted)
+			}
+		}
+	}
+}
+
+func (a *App) pushAnswer(sessionID, turnID string, answer model.Answer) error {
+	s := a.Sync()
+	if s == nil {
+		return errors.New("not connected to a sessionsvr")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := s.AppendAnswer(ctx, sessionID, turnID, answer); err != nil {
+		log.Printf("sync answer %s: %v", turnID, err)
+		return err
+	}
+	return a.store.SetAnswerSync(turnID, SyncSynced)
+}
+
+var ErrReadOnly = errors.New("session is owned by another device")
+var ErrBusy = errors.New("a turn is already running")
+
+func (a *App) emit(v any) { a.hub.broadcast(v) }
