@@ -520,7 +520,7 @@ POST   /api/server/login  POST /api/server/disconnect
 - 启动时生成一次性 token，用 `http://127.0.0.1:5217/#t=<token>` 打开浏览器；前端用 token 换 `HttpOnly; SameSite=Strict` Cookie，之后不再出现在 URL。
 - 校验 `Origin` / `Host`，拒绝非本机来源与 DNS rebinding。
 - 不返回 CORS 头。
-- 端口默认 5217；被占用时回退到临时端口，托盘提示里显示实际端口，后续「打开」使用实际端口。
+- 端口固定 5217；被占用时启动失败，不回退到临时端口。
 
 ### 10.4 turn 引擎
 

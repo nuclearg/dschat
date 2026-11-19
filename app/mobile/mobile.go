@@ -35,7 +35,7 @@ func Start(dataDir string) (string, error) {
 		return url, nil
 	}
 
-	a, err := chatsvr.New(chatsvr.Config{DataDir: dataDir, Port: 0})
+	a, err := chatsvr.New(chatsvr.Config{DataDir: dataDir, Port: chatsvr.DefaultPort})
 	if err != nil {
 		return "", err
 	}

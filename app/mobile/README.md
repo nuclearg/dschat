@@ -25,7 +25,7 @@ Running() bool                        // lifecycle probe for shells/tests
 `Start` is idempotent while the engine is up: a second call returns the same
 URL, which lets the Android service call it on every `onStartCommand` without
 special-casing process restarts. The package keeps a mutex around the single
-instance, creates the engine with `chatsvr.Config{DataDir: dataDir, Port: 0}`,
+instance, creates the engine with `chatsvr.Config{DataDir: dataDir, Port: chatsvr.DefaultPort}`,
 and calls `app.Start(ctx)` with a cancellable context. `Stop` cancels that
 context and then closes the app (which closes SQLite), and `Stop` on a stopped
 engine is a no-op.

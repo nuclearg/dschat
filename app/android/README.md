@@ -172,13 +172,12 @@ Expected package name `com.dschat.android`, launchable activity
 ## Known limitations
 
 - Debug-signed only; `release` is unminified and unsigned.
-- The AAR (~46 MiB) and APK (~141 MiB) bundle all four ABIs; the native
-  libraries are stored uncompressed (`extractNativeLibs=false`), so the debug
-  APK is 148,066,708 bytes. Use ABI splits or an app bundle to shrink it.
-- `chatsvr` maps `Port: 0` to its default port 5217 and only falls back to a
-  kernel-assigned port when 5217 is busy. The URL is always resolved by
-  `Mobile.start`, so this is transparent to the shell, but only one engine can
-  listen on 5217 per device/process.
+- The AAR (~46 MiB) and APK (~113 MiB) bundle all four ABIs; the native
+  libraries are stored uncompressed (`extractNativeLibs=false`). Use ABI
+  splits or an app bundle to shrink it.
+- `chatsvr` listens on the fixed `127.0.0.1:5217`; if that port is busy the
+  engine start fails and the shell shows the error. The URL is resolved by
+  `Mobile.start`, so the WebView does not hardcode it.
 - External `http(s)` links open the browser instead of an in-app tab.
 - File selection uses the system document picker (`ACTION_GET_CONTENT`); camera
   capture is not offered. Only `RESOURCE_AUDIO_CAPTURE` is granted to pages;

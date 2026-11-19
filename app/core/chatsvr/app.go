@@ -21,6 +21,8 @@ import (
 	"dschat/app/core/model"
 )
 
+const DefaultPort = 5217
+
 type Config struct {
 	DataDir    string
 	Port       int
@@ -104,7 +106,7 @@ func New(cfg Config) (*App, error) {
 		cfg.DataDir = filepath.Join(home, ".dschat", "app")
 	}
 	if cfg.Port == 0 {
-		cfg.Port = 5217
+		cfg.Port = DefaultPort
 	}
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return nil, err
@@ -341,11 +343,8 @@ func (a *App) Start(ctx context.Context) error {
 	a.selfCheck()
 
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", a.cfg.Port))
-	if err != nil && a.cfg.Port != 0 {
-		ln, err = net.Listen("tcp", "127.0.0.1:0")
-	}
 	if err != nil {
-		return err
+		return fmt.Errorf("listen 127.0.0.1:%d: %w", a.cfg.Port, err)
 	}
 	a.port = ln.Addr().(*net.TCPAddr).Port
 
