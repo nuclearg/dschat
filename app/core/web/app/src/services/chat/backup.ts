@@ -1,5 +1,5 @@
 import { deleteAllSessions, type DeleteAllResult } from '../chatsvr.js'
-import { refreshSessions } from './store.js'
+import { refreshSessions, useChatStore } from './store.js'
 
 export { BackupError } from './history/errors.js'
 
@@ -15,8 +15,13 @@ const enqueueBackup = <T>(run: () => Promise<T>): Promise<T> => {
 /** 选择文件后导入 DeepSeek ZIP；同一个文件导入两次会产生两份副本。 */
 export const importHistory = (file: File, onProgress?: (done: number, total: number) => void) =>
   enqueueBackup(async () => {
-    const { importDeepSeek } = await import('./history/importDeepSeek.js')
-    return importDeepSeek(file, onProgress)
+    useChatStore.setState({ importingHistory: true })
+    try {
+      const { importDeepSeek } = await import('./history/importDeepSeek.js')
+      return await importDeepSeek(file, onProgress)
+    } finally {
+      useChatStore.setState({ importingHistory: false })
+    }
   })
 
 /** 确认删除后调用：只删除当前设备拥有的本地会话；其他设备只读会话保留。 */
