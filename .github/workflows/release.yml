@@ -2,7 +2,6 @@ name: release
 
 on:
   push:
-    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -15,54 +14,10 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Go tests and vet
-        run: |
-          go vet ./...
-          go test ./...
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: app/core/web/app/pnpm-lock.yaml
-      - name: TypeScript typecheck and lint
-        working-directory: app/core/web/app
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm type
-          pnpm lint
+    uses: ./.github/workflows/test.yml
 
   web:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: app/core/web/app/pnpm-lock.yaml
-      - name: Build web UI
-        working-directory: app/core/web/app
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm build
-      - uses: actions/upload-artifact@v4
-        with:
-          name: web-dist
-          path: app/core/web/app/dist
-          retention-days: 1
+    uses: ./.github/workflows/build-web.yml
 
   sessionsvr:
     runs-on: ubuntu-latest
@@ -75,12 +30,12 @@ jobs:
           - { goos: linux, goarch: amd64 }
           - { goos: windows, goarch: amd64 }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
-      - name: Build and package
+      - name: Build and package sessionsvr
         shell: bash
         run: |
           set -euo pipefail
@@ -93,29 +48,28 @@ jobs:
           cp sessionsvr/config.properties.example "$name/config.properties.example"
           if [[ "${{ matrix.goos }}" == "windows" ]]; then
             zip -qr "$name.zip" "$name"
-            rm -rf "$name"
           else
             tar -czf "$name.tar.gz" "$name"
-            rm -rf "$name"
           fi
-      - uses: actions/upload-artifact@v4
+          rm -rf "$name"
+      - uses: actions/upload-artifact@v7
         with:
           name: sessionsvr-${{ matrix.goos }}-${{ matrix.goarch }}
           path: sessionsvr-${{ matrix.goos }}-${{ matrix.goarch }}.*
-          retention-days: 1
+          retention-days: 3
 
   macos-app:
     needs: web
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
       - name: Replace web dist
         run: rm -rf app/core/web/dist
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: web-dist
           path: app/core/web/dist
@@ -125,24 +79,24 @@ jobs:
           MACOS_ARCH=arm64 ./scripts/build-macos-app.sh
           mkdir -p dist/release
           ditto -c -k --norsrc --noextattr --keepParent dist/Dschat.app dist/release/dschat-macos-arm64.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dschat-macos-arm64
           path: dist/release/dschat-macos-arm64.zip
-          retention-days: 1
+          retention-days: 3
 
   windows-app:
     needs: web
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
       - name: Replace web dist
         run: rm -rf app/core/web/dist
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: web-dist
           path: app/core/web/dist
@@ -156,23 +110,23 @@ jobs:
           ./scripts/build-windows-app.sh
           mkdir -p dist/release
           (cd dist && zip -qr release/dschat-windows-amd64.zip dschat-windows-amd64.exe)
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dschat-windows-amd64
           path: dist/release/dschat-windows-amd64.zip
-          retention-days: 1
+          retention-days: 3
 
   release:
     needs: [test, web, sessionsvr, macos-app, windows-app]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: dschat-*
           path: release
           merge-multiple: true
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: sessionsvr-*
           path: release
@@ -180,7 +134,7 @@ jobs:
       - name: Checksums
         working-directory: release
         run: sha256sum * > SHA256SUMS
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: release/*
           generate_release_notes: true

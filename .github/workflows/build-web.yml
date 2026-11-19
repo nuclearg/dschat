@@ -1,0 +1,31 @@
+name: build-web
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/core/web/app/pnpm-lock.yaml
+      - name: Build web UI
+        working-directory: app/core/web/app
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: web-dist
+          path: app/core/web/app/dist
+          retention-days: 3

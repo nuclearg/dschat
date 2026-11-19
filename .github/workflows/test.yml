@@ -1,0 +1,36 @@
+name: test
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Go vet and tests
+        run: |
+          go vet ./...
+          go test -race ./app/core/... ./sessionsvr
+          go test ./...
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/core/web/app/pnpm-lock.yaml
+      - name: TypeScript typecheck and lint
+        working-directory: app/core/web/app
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm type
+          pnpm lint
