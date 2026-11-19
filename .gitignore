@@ -4,3 +4,5 @@
 *.db-shm
 .DS_Store
 node_modules/
+/dist/
+*.syso

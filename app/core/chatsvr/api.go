@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -34,7 +35,9 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sessions", a.auth(a.handleListSessions))
 	mux.HandleFunc("GET /api/sessions/{id}", a.auth(a.handleGetSession))
 	mux.HandleFunc("POST /api/sessions", a.auth(a.handleCreateSession))
+	mux.HandleFunc("POST /api/sessions/import", a.auth(a.handleImportSession))
 	mux.HandleFunc("PATCH /api/sessions/{id}", a.auth(a.handleRename))
+	mux.HandleFunc("DELETE /api/sessions", a.auth(a.handleDeleteAll))
 	mux.HandleFunc("DELETE /api/sessions/{id}", a.auth(a.handleDelete))
 	mux.HandleFunc("POST /api/sessions/{id}/turns", a.auth(a.handleSend))
 	mux.HandleFunc("POST /api/sessions/{id}/turns/{tid}/stop", a.auth(a.handleStop))
@@ -47,7 +50,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/settings", a.auth(a.handleSettings))
 	mux.HandleFunc("PUT /api/settings", a.auth(a.handleSaveSettings))
 	mux.HandleFunc("POST /api/settings/verify", a.auth(a.handleVerifyKey))
-	mux.HandleFunc("POST /api/server/pair", a.auth(a.handlePair))
+	mux.HandleFunc("POST /api/server/login", a.auth(a.handleServerLogin))
 	mux.HandleFunc("POST /api/server/disconnect", a.auth(a.handleDisconnect))
 	mux.HandleFunc("GET /api/llm/models", a.auth(a.handleProxy))
 	mux.HandleFunc("POST /api/llm/anthropic/v1/messages", a.auth(a.handleProxy))
@@ -86,6 +89,9 @@ func (a *App) auth(next http.HandlerFunc) http.HandlerFunc {
 		if !a.authorized(r) {
 			apierr.Write(w, apierr.New(401, "UNAUTHORIZED", "missing or invalid local token"))
 			return
+		}
+		if lang := strings.TrimSpace(r.Header.Get("X-Language")); lang != "" {
+			a.setLanguage(lang)
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			if ct := r.Header.Get("Content-Type"); ct != "" && !strings.HasPrefix(ct, "application/json") && !strings.HasPrefix(ct, "multipart/form-data") {
@@ -231,6 +237,20 @@ func (a *App) handleClaim(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, 200, map[string]any{"ok": true})
 }
 
+func (a *App) handleImportSession(w http.ResponseWriter, r *http.Request) {
+	var req ImportSessionRequest
+	if err := httpx.ReadJSON(w, r, &req); err != nil {
+		apierr.Write(w, err)
+		return
+	}
+	res, err := a.ImportSession(req)
+	if err != nil {
+		apierr.Write(w, err)
+		return
+	}
+	httpx.WriteJSON(w, 200, res)
+}
+
 func (a *App) handleSync(w http.ResponseWriter, r *http.Request) {
 	if err := a.SyncPending(r.PathValue("id")); err != nil {
 		apierr.Write(w, err)
@@ -267,6 +287,15 @@ func (a *App) handleRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, 200, map[string]any{"ok": true})
+}
+
+func (a *App) handleDeleteAll(w http.ResponseWriter, r *http.Request) {
+	result, err := a.DeleteAllOwned()
+	if err != nil {
+		apierr.Write(w, err)
+		return
+	}
+	httpx.WriteJSON(w, 200, result)
 }
 
 func (a *App) handleDelete(w http.ResponseWriter, r *http.Request) {
@@ -335,6 +364,16 @@ func (a *App) handleAttachmentUpload(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleAttachmentGet(w http.ResponseWriter, r *http.Request) {
 	row, err := a.OpenAttachment(r.PathValue("id"))
+	if err == nil {
+		if _, statErr := os.Stat(row.Path); statErr != nil {
+			row, err = nil, statErr
+		}
+	}
+	if err != nil {
+		ctx, cancel := context.WithTimeout(a.baseCtx(), 60*time.Second)
+		row, err = a.fetchRemoteAttachment(ctx, r.PathValue("id"))
+		cancel()
+	}
 	if err != nil {
 		apierr.Write(w, err)
 		return
@@ -443,11 +482,11 @@ func (a *App) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, 200, a.settingsView())
 }
 
-func (a *App) handlePair(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleServerLogin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		URL  string `json:"url"`
-		Code string `json:"code"`
-		Name string `json:"name"`
+		URL      string `json:"url"`
+		Password string `json:"password"`
+		Name     string `json:"name"`
 	}
 	if err := httpx.ReadJSON(w, r, &req); err != nil {
 		apierr.Write(w, err)
@@ -463,22 +502,30 @@ func (a *App) handlePair(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(a.baseCtx(), 20*time.Second)
 	defer cancel()
-	token, deviceID, _, err := Pair(ctx, u.String(), req.Code, req.Name, runtime.GOOS, a.deviceID)
+	res, err := Login(ctx, u.String(), req.Password, req.Name, runtime.GOOS, a.deviceID, a.currentLanguage())
 	if err != nil {
-		apierr.Write(w, apierr.New(400, "PAIR_FAILED", err.Error()))
+		message := err.Error()
+		var remote *RemoteError
+		if errors.As(err, &remote) && remote.Message != "" {
+			message = remote.Message
+		}
+		apierr.Write(w, apierr.New(400, "LOGIN_FAILED", message))
 		return
 	}
 	if old := a.Sync(); old != nil {
 		old.Close()
 	}
-	_ = a.store.SetKV("server_url", strings.TrimRight(u.String(), "/"))
-	_ = a.store.SetKV("server_token", token)
-	_ = a.store.SetKV("server_device_id", deviceID)
-	s := NewSync(u.String(), token, deviceID)
+	base := strings.TrimRight(u.String(), "/")
+	_ = a.store.SetKV("server_url", base)
+	_ = a.store.SetKV("server_device_id", res.DeviceID)
+	a.saveServerTokens(res.AccessToken, res.RefreshToken, res.AccessExpiresAt)
+	_ = a.store.SetKV("server_token", "") // remove the pairing-era token
+	s := NewSync(base, res.AccessToken, res.RefreshToken, res.AccessExpiresAt, res.DeviceID, a.currentLanguage())
+	s.OnTokens = a.saveServerTokens
 	a.setSync(s)
 	go s.Run(a.baseCtx(), a.onRemoteEvent, func() { go a.syncAll(a.baseCtx()) })
 	go a.syncAll(a.baseCtx())
-	httpx.WriteJSON(w, 200, map[string]any{"paired": true, "url": s.BaseURL, "deviceId": deviceID})
+	httpx.WriteJSON(w, 200, map[string]any{"paired": true, "url": s.BaseURL, "deviceId": res.DeviceID})
 }
 
 func (a *App) handleDisconnect(w http.ResponseWriter, _ *http.Request) {
@@ -488,6 +535,9 @@ func (a *App) handleDisconnect(w http.ResponseWriter, _ *http.Request) {
 	a.setSync(nil)
 	_ = a.store.SetKV("server_url", "")
 	_ = a.store.SetKV("server_token", "")
+	_ = a.store.SetKV("server_access_token", "")
+	_ = a.store.SetKV("server_refresh_token", "")
+	_ = a.store.SetKV("server_access_expires_at", "")
 	_ = a.store.SetKV("server_device_id", "")
 	httpx.WriteJSON(w, 200, map[string]any{"paired": false})
 }
@@ -572,6 +622,9 @@ func (a *App) staticHandler() http.Handler {
 	distServer := http.FileServer(http.FS(dist))
 	legacyServer := http.FileServer(http.FS(legacy))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if lang := strings.TrimSpace(r.Header.Get("X-Language")); lang != "" {
+			a.setLanguage(lang)
+		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.NotFound(w, r)
 			return

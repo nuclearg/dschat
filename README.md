@@ -2,7 +2,7 @@
 
 跨端 DeepSeek 聊天客户端：一个本地 `chatsvr` 引擎 + 内嵌 Web UI，以及一个可选的 `sessionsvr` 同步中心。桌面端与 Android/iOS 共用同一份 Go 引擎。
 
-当前进度：**官方 demo 前端已接到 chatsvr**（只用它的视觉/交互，不再用它的 IndexedDB/状态机），本地引擎 + sessionsvr 同步已跑通。托盘、Android/iOS 壳、官方网关尚未实现。
+当前进度：**官方 demo 前端已接到 chatsvr**（只用它的视觉/交互，不再用它的 IndexedDB/状态机），本地引擎 + sessionsvr 同步已跑通；macOS 菜单栏、Windows 托盘、Android WebView 壳均已构建。官方网关尚未完成。
 
 ![UI](docs/ui.png)
 
@@ -10,7 +10,9 @@
 
 - 本地 chatsvr：会话、turn 树、流式输出、thinking 块、联网搜索/读链接、服务端标题、附件、停止、重新生成、编辑问题、版本切换。
 - Web UI（`go:embed` 进单二进制）：上述功能的界面，Enter 发送、SSE 流式渲染、Markdown。
-- sessionsvr：配对、会话/回合同步、会话级 owner、跨设备 claim、只读、SSE 通知。
+- sessionsvr：密码登录、access/refresh token、会话/回合同步、会话级 owner、跨设备 claim、只读、SSE 通知。
+- 会话删除：chatsvr 物理删除（含本地附件文件），sessionsvr 软删除并广播；其他设备立即删除，离线设备重连时对账删除；7 天后 sessionsvr 硬删并清理 blob。
+- 删除所有本地对话：只删除本设备 owner 的会话，其他设备的只读会话保留；已同步的会话同时从 sessionsvr 删除。
 - 两台设备抢同一个会话：旧设备收到 `owner_changed` 后变只读，新设备接管并把遗留 open turn 用 `aborted` 闭合。
 
 ## 前端
@@ -24,19 +26,32 @@
 ```sh
 make build            # 只编 Go；仓库里已带构建好的 dist
 make web              # 改了前端后重新构建 dist（需要 pnpm）
+make shells           # macOS .app + Windows .exe
+make app-macos        # dist/Dschat.app（需要 Xcode）
+make app-windows      # dist/dschat-windows-amd64.exe（需要 mingw-w64）
+make android          # dist/android/dschat-debug.apk + chatsvr.aar
 ```
 
-`make build` 产物：`bin/dschat`（macOS）、`bin/sessionsvr`。
+`make build` 产物：`bin/dschat`（macOS，默认带菜单栏）、`bin/sessionsvr`。
+`make shells` 产物：`dist/Dschat.app`（arm64/x86_64 universal）、`dist/dschat-windows-amd64.exe`。
+`make android` 产物：`dist/android/dschat-debug.apk`、`dist/android/chatsvr.aar`（需要 Android SDK + NDK 27.2 + gomobile）。
 
 ## 运行
 
 1. 启动 sessionsvr（可选）：
 
+`sessionsvr` 要求**同目录**有 `config.properties`（可从 `sessionsvr/config.properties.example` 复制）：
+
+```properties
+PASSWORD=
+```
+
 ```sh
 ./bin/sessionsvr -addr :5218 -data ~/.dschat/sessionsvr
 ```
 
-启动日志里会打印 6 位配对码，10 分钟内有效。配对成功后会自动换一个新码；过期就重启进程。
+- `PASSWORD` 为空时不校验密码，启动日志会打多行警告；只建议本机/可信局域网。
+- 密码非空时，客户端连接需要输入该密码；密码只在连接时验证一次，之后走 access/refresh token。
 
 2. 启动客户端：
 
@@ -44,11 +59,28 @@ make web              # 改了前端后重新构建 dist（需要 pnpm）
 ./bin/dschat
 ```
 
-默认起在 `127.0.0.1:5217`，并拉起默认浏览器。端口被占用时会自动换一个空闲端口。`-no-open` 不打开浏览器，`-port` / `-data` 可覆盖。
+默认起在 `127.0.0.1:5217`，显示菜单栏/托盘图标，并拉起默认浏览器。端口被占用时会自动换一个空闲端口。`-no-open` 不打开浏览器，`-serve` 不启动托盘（纯后台，适合脚本/测试），`-port` / `-data` 可覆盖。
+
+macOS 也可以直接打开 app：
+
+```sh
+open dist/Dschat.app
+```
+
+Windows 双击 `dist/dschat-windows-amd64.exe`。托盘菜单：打开 / 配置 / 退出。
+
+Android：
+
+```sh
+adb install -r dist/android/dschat-debug.apk
+adb shell am start -n com.dschat.android/.MainActivity
+```
+
+引擎在 App 进程内由前台 Service 持有，WebView 加载 `127.0.0.1` 的同一个 UI；附件、语音、设置都走同一套 chatsvr。
 
 3. 首次使用：右上角「设置」→ 填 DeepSeek API Key。Key 只保存在本机，不会发往 sessionsvr。
 
-4. 需要多端同步：设置 → sessionsvr 地址 + 配对码 → 连接。连接后**新建**的会话会同步；已有的本地会话不会自动上传（这是设计里待定的行为）。
+4. 需要多端同步：设置 → sessionsvr 地址 + 密码 → 连接。连接后**新建**的会话会同步；已有的本地会话不会自动上传（这是设计里待定的行为）。
 
 ## 目录
 
@@ -58,11 +90,11 @@ app/core/          # 全平台共用（纯 Go）
   deepseek/        # Messages / Files 客户端
   model/ xdb/ apierr/ httpx/
   web/             # 内嵌前端：dist/（官方 demo 构建产物）+ legacy/（旧版 UI）+ app/（demo 源码）
-app/desktop/       # macOS + Windows 共用的启动逻辑（目前是起引擎 + 开浏览器）
+app/desktop/       # macOS + Windows 共用：引擎启动 + 菜单栏/托盘 + 开浏览器
 app/osx/           # darwin main
-app/win/           # windows（待做）
-app/mobile/        # gomobile 门面，Android + iOS 共用（待做）
-app/android/       # Kotlin + Gradle + WebView（待做）
+app/win/           # Windows 入口、托盘、exe 资源
+app/mobile/        # gomobile 门面，Android + iOS 共用
+app/android/       # Kotlin + Gradle + WebView + 前台 Service
 app/ios/           # Swift + Xcode（规划）
 sessionsvr/        # 同步服务，单二进制
 docs/design.md     # 设计文档
@@ -85,6 +117,8 @@ docs/design.md     # 设计文档
 - 同一 chatsvr 双窗口：B 的列表通过 SSE 自动出现新会话；生成中打开时 chatsvr 返回内存中的部分输出，B 能看到已生成的前缀并继续接收后续 SSE。
 - 两个 chatsvr 连同一 sessionsvr：B 的列表自动出现新会话，打开后显示等待点（只读）；A 完成后 B 自动刷新出完整回答。
 - 同一 session 两个窗口并发发 turn：chatsvr 用 `sending`/`active` 原子占位，只有一个请求返回 200，另一个返回 409 `TURN_IN_PROGRESS`；不会产生两个 open turn。
+- 附件端到端：A 上传图片 → sessionsvr 存 blob → B 同步下载 → claim → 用 B 的 key 重新上传 file_id → 继续追问成功。
+- DeepSeek ZIP 导入：图片上传、合并、重复导入产生副本、自动上传 sessionsvr 已验证。
 - 抢占者闭合遗留 open turn（`aborted`），本地与 sessionsvr 一致。
 - 上下文组装会跳过 aborted turn，且只回传 text + read_link 工具块。
 - UI E2E（Playwright + 本机 Edge）：发消息、流式渲染、设置弹窗，无 console error。
@@ -93,17 +127,16 @@ docs/design.md     # 设计文档
 ## 已知缺口
 
 - API key 和 sessionsvr token 目前明文存在本地 SQLite（目录 0700），keychain 接入未做。
-- 附件原件未同步到 sessionsvr，只同步元数据；换设备后无法用新 key 重新引用。
-- 托盘图标、单实例锁、macOS 签名/公证、Windows 壳、安装包未做。
-- Android/iOS/mobile façade 未做。
+- 单实例锁、macOS 签名/公证、Windows 安装包/代码签名未做；未签名的 macOS app 首次打开需要右键「打开」，Windows 可能触发 SmartScreen。
+- Android 目前只出 debug APK（全 ABI，约 141 MiB），没有 release 签名/上架；iOS 壳未做。
 - 官方 UI 已把非 owner 的会话置为只读（输入框禁用、显示等待点），但还没有「接管」按钮；消息上的重新生成等操作仍可能发出 `READ_ONLY` 请求。
 - 跨 chatsvr 的生成过程只同步「正在思考」状态，不逐 token 同步；回答在 turn 完成后才出现在另一台设备。
-- 官方 UI 的历史导入/导出仍走 demo 原来的 ZIP/IndexedDB 逻辑，尚未接到 chatsvr。
-- 附件上传已接到 chatsvr，但跨设备附件原件同步（blob）还没做，端到端也还没验证。
+- 数据管理只提供 DeepSeek 官方 ZIP 导入，不提供导出；导入会合并，重复导入产生重复会话；非图片附件只有元数据。
+- 会话删除已清理 chatsvr 本地附件文件；sessionsvr 附件随软删会话在 7 天后硬删。单附件/被替换附件的独立 GC 仍未做。
+- DeepSeek `file_id` 不跨设备同步，每台设备用自己的 key 重新上传并缓存 6 天。
 - 官方 UI 的版本选择器显示在问题一侧（turn 级映射），与官方回答侧的交互位置不同。
 - 官方共享 key / 网关 / 计费未做。
 - 不支持删除单条 turn / 单个版本，不支持「续写」（设计决定）。
-- 配对码过期后需要重启 sessionsvr 才能拿到新码。
 
 ## 设计
 

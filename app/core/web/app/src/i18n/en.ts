@@ -108,6 +108,12 @@ export const en = {
   syncSelfHosted: 'Self-hosted server',
   syncAddressPlaceholder: 'http://192.168.1.10:5218',
   syncCodePlaceholder: '6-digit pairing code printed by sessionsvr',
+  syncPasswordPlaceholder: 'sessionsvr password (optional)',
+  syncPasswordHint: 'A password is recommended; if empty, anyone who can reach this server can read and modify your chats.',
+  syncEmptyPasswordCheck: 'I understand this server has no password',
+  syncEmptyPasswordRequired: 'Confirm that you understand the risk of an empty password first',
+  syncEmptyPasswordConfirm: 'This sessionsvr has no password. Anyone who can reach it can view, modify or take over your chats. Connect anyway?',
+  syncMissingUrl: 'Enter the server address',
   syncConnect: 'Connect',
   syncConnecting: 'Connecting…',
   syncDisconnect: 'Disconnect',
@@ -125,6 +131,15 @@ export const en = {
   confirm: 'Confirm',
   apiKeyInvalid: 'Invalid API Key. Please check it and try again.',
   apiKeyVerificationFailed: 'Verification failed: {message}',
+  apiKeyGuideStep1: 'Open the DeepSeek Platform and sign in with your phone number or WeChat:',
+  apiKeyGuideStep2:
+    'On the "API Keys" page, click "Create API Key", name it anything, then copy the key that starts with sk-.',
+  apiKeyGuideStep3:
+    'Paste it into the field below. It is verified automatically and saved once it passes. Your account needs balance to use it.',
+  apiKeyGuideOpenPlatform: 'Get an API Key',
+  apiKeyGuideGet: 'Get a new key',
+  apiKeyHint:
+    'The key is shown only once, so copy it right away. Treat it like your account password and never share it.',
   historyImport: 'Import chat history',
   historyImportAction: 'Import',
   historyExportAction: 'Export',
@@ -132,10 +147,11 @@ export const en = {
   historyImportConfirm: 'Import',
   historyImportConfirmTitle: 'Import chat history?',
   historyImportConfirmDescription:
-    'The uploaded chat history will replace all your current chats. Import anyway?',
+    'Importing merges with your existing chats; importing the same ZIP twice creates duplicate chats.',
   historyImportDescription:
-    'Importing chat history replaces all local chats and attachments. Supports ZIP files exported from DeepSeek.',
+    'Import a ZIP exported by DeepSeek. Existing chats are kept; importing the same ZIP twice creates duplicates.',
   historyImportedOne: 'Imported 1 chat',
+  historyImportPartial: 'Imported {imported} chats, {failed} failed, {warnings} sync warnings',
   historyImported: 'Imported {count} chats',
   historyImportFailed:
     'File import failed. The file format may be invalid, or the ZIP file may use an older chat export format. Please export your chat history from DeepSeek again and retry the import.',
@@ -144,12 +160,16 @@ export const en = {
   historyExportDescription:
     'Includes all chat history and locally stored images. Other attachments retain file details only. Your API Key is not included.',
   exportAllDownload: 'Download',
-  deleteAllSessions: 'Delete all chats',
-  deleteAllSessionsModalTitle: 'Once deleted, all chats will be cleared and cannot be recovered.',
+  deleteAllSessions: 'Delete all local chats',
+  deleteAllSessionsDescription:
+    'Only chats owned by this device. Read-only chats owned by other devices are kept; synced chats are also deleted from sessionsvr.',
+  deleteAllSessionsModalTitle: 'Delete all local chats?',
   deleteAllSessionsModalDescription:
-    'Locally saved attachments and unsent drafts will also be deleted.',
+    'Only chats owned by this device are deleted. Read-only chats owned by other devices are kept. Synced chats are also deleted from sessionsvr; local attachments and drafts are removed.',
   historyDeleting: 'Deleting...',
-  historyDeleted: 'Successfully deleted.',
+  historyDeleted: 'Deleted {deleted} local chat(s); skipped {skipped} owned by other devices.',
+  historyDeletePartial: 'Deleted {deleted}, skipped {skipped}, failed {failed}.',
+  historyDeleteNone: 'No local chats to delete.',
   historyDeleteFailed: 'Failed to delete chats. Please try again.',
   upload: 'Upload',
   uploadUnsupportedFormat:

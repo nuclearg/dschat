@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,6 +46,9 @@ type App struct {
 
 	setMu sync.RWMutex
 	set   Settings
+
+	langMu   sync.RWMutex
+	language string
 
 	ctx context.Context
 
@@ -111,7 +116,11 @@ func New(cfg Config) (*App, error) {
 		active:      map[string]*activeTurn{},
 		sending:     map[string]bool{},
 		partials:    map[string]*model.Answer{},
+		language:    "zh-CN",
 		proxyClient: &http.Client{},
+	}
+	if lang, _ := st.KV("ui_language"); lang != "" {
+		a.language = lang
 	}
 	a.deviceID, err = a.ensureKV("device_id", model.NewID())
 	if err != nil {
@@ -196,13 +205,61 @@ func (a *App) Settings() Settings {
 	return a.set
 }
 
+func (a *App) currentLanguage() string {
+	a.langMu.RLock()
+	defer a.langMu.RUnlock()
+	if a.language == "" {
+		return "zh-CN"
+	}
+	return a.language
+}
+
+func (a *App) setLanguage(language string) {
+	language = strings.TrimSpace(language)
+	if language == "" {
+		return
+	}
+	a.langMu.Lock()
+	changed := a.language != language
+	a.language = language
+	a.langMu.Unlock()
+	if changed {
+		_ = a.store.SetKV("ui_language", language)
+	}
+	if s := a.Sync(); s != nil {
+		s.SetLanguage(language)
+	}
+}
+
 func (a *App) loadSync() {
 	url, _ := a.store.KV("server_url")
-	token, _ := a.store.KV("server_token")
+	access, _ := a.store.KV("server_access_token")
+	refresh, _ := a.store.KV("server_refresh_token")
+	expiresRaw, _ := a.store.KV("server_access_expires_at")
 	device, _ := a.store.KV("server_device_id")
-	if url != "" && token != "" {
-		a.sync = NewSync(url, token, device)
+	var expiresAt int64
+	if n, err := strconv.ParseInt(expiresRaw, 10, 64); err == nil {
+		expiresAt = n
 	}
+	if url != "" && (access != "" || refresh != "") {
+		s := NewSync(url, access, refresh, expiresAt, device, a.currentLanguage())
+		s.OnTokens = a.saveServerTokens
+		a.sync = s
+		return
+	}
+	// Pairing-era token (or a half-written pair) has no refresh credentials;
+	// force the UI back to "not connected" instead of showing a dead server.
+	if old, _ := a.store.KV("server_token"); old != "" {
+		_ = a.store.SetKV("server_url", "")
+		_ = a.store.SetKV("server_token", "")
+		_ = a.store.SetKV("server_device_id", "")
+	}
+}
+
+func (a *App) saveServerTokens(access, refresh string, accessExpiresAt int64) {
+	_ = a.store.SetKV("server_access_token", access)
+	_ = a.store.SetKV("server_refresh_token", refresh)
+	_ = a.store.SetKV("server_access_expires_at", strconv.FormatInt(accessExpiresAt, 10))
 }
 
 func (a *App) Sync() *Sync {

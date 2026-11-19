@@ -80,6 +80,7 @@ create table if not exists attachments (
   path text not null,
   is_image integer not null default 0,
   file_id text not null default '',
+  file_uploaded_at integer not null default 0,
   created_at integer not null
 );
 create table if not exists local_output (
@@ -95,7 +96,12 @@ create table if not exists drafts (
   updated_at integer not null
 );
 `)
-	return err
+	if err != nil {
+		return err
+	}
+	// 旧库补列；已存在时忽略错误。
+	_, _ = db.Exec(`alter table attachments add column file_uploaded_at integer not null default 0`)
+	return nil
 }
 
 func (s *Store) KV(k string) (string, error) {
@@ -179,6 +185,48 @@ func (s *Store) SetSessionSyncState(id, state string) error {
 func (s *Store) DeleteSession(id string) error {
 	_, err := s.db.Exec(`delete from sessions where id=?`, id)
 	return err
+}
+
+// DeleteSessionWithAttachments physically deletes a local session and returns
+// the attachment files that should be removed from disk.
+func (s *Store) DeleteSessionWithAttachments(id string) ([]string, error) {
+	rows, err := s.db.Query(`select path from attachments where session_id=? and path<>''`, id)
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		paths = append(paths, path)
+	}
+	rows.Close()
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	for _, q := range []string{
+		`delete from attachments where session_id=?`,
+		`delete from local_output where session_id=?`,
+		`delete from drafts where session_id=?`,
+		`delete from selections where session_id=?`,
+		`delete from answers where turn_id in (select id from turns where session_id=?)`,
+		`delete from turns where session_id=?`,
+		`delete from sessions where id=?`,
+	} {
+		if _, err := tx.Exec(q, id); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return paths, nil
 }
 
 func (s *Store) UpsertTurn(t model.Turn) error {
@@ -350,29 +398,30 @@ func (s *Store) DeleteLocalOutput(turnID string) error {
 }
 
 type Attachment struct {
-	ID        string
-	SessionID string
-	Name      string
-	MIME      string
-	Size      int64
-	Path      string
-	IsImage   bool
-	FileID    string
-	CreatedAt int64
+	ID             string
+	SessionID      string
+	Name           string
+	MIME           string
+	Size           int64
+	Path           string
+	IsImage        bool
+	FileID         string
+	FileUploadedAt int64
+	CreatedAt      int64
 }
 
 func (s *Store) PutAttachment(a Attachment) error {
-	_, err := s.db.Exec(`insert into attachments(id,session_id,name,mime,size,path,is_image,file_id,created_at)
-values(?,?,?,?,?,?,?,?,?)`,
-		a.ID, a.SessionID, a.Name, a.MIME, a.Size, a.Path, boolInt(a.IsImage), a.FileID, a.CreatedAt)
+	_, err := s.db.Exec(`insert or replace into attachments(id,session_id,name,mime,size,path,is_image,file_id,file_uploaded_at,created_at)
+values(?,?,?,?,?,?,?,?,?,?)`,
+		a.ID, a.SessionID, a.Name, a.MIME, a.Size, a.Path, boolInt(a.IsImage), a.FileID, a.FileUploadedAt, a.CreatedAt)
 	return err
 }
 
 func (s *Store) Attachment(id string) (*Attachment, error) {
 	var a Attachment
 	var isImage int
-	err := s.db.QueryRow(`select id,session_id,name,mime,size,path,is_image,file_id,created_at from attachments where id=?`, id).
-		Scan(&a.ID, &a.SessionID, &a.Name, &a.MIME, &a.Size, &a.Path, &isImage, &a.FileID, &a.CreatedAt)
+	err := s.db.QueryRow(`select id,session_id,name,mime,size,path,is_image,file_id,file_uploaded_at,created_at from attachments where id=?`, id).
+		Scan(&a.ID, &a.SessionID, &a.Name, &a.MIME, &a.Size, &a.Path, &isImage, &a.FileID, &a.FileUploadedAt, &a.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, apierr.New(404, "ATTACHMENT_NOT_FOUND", "attachment not found")
 	}
@@ -380,8 +429,23 @@ func (s *Store) Attachment(id string) (*Attachment, error) {
 	return &a, err
 }
 
-func (s *Store) SetAttachmentFileID(id, fileID string) error {
-	_, err := s.db.Exec(`update attachments set file_id=? where id=?`, fileID, id)
+func (s *Store) SetAttachmentSessionID(id, sessionID string) error {
+	_, err := s.db.Exec(`update attachments set session_id=? where id=?`, sessionID, id)
+	return err
+}
+
+func (s *Store) SetAttachmentImageMeta(id, mimeType string, isImage bool) error {
+	_, err := s.db.Exec(`update attachments set mime=?, is_image=? where id=?`, mimeType, boolInt(isImage), id)
+	return err
+}
+
+func (s *Store) SetAttachmentFileID(id, fileID string, uploadedAt int64) error {
+	_, err := s.db.Exec(`update attachments set file_id=?, file_uploaded_at=? where id=?`, fileID, uploadedAt, id)
+	return err
+}
+
+func (s *Store) ClearAttachmentFileID(id string) error {
+	_, err := s.db.Exec(`update attachments set file_id='', file_uploaded_at=0 where id=?`, id)
 	return err
 }
 

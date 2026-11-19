@@ -1,4 +1,4 @@
-.PHONY: build test web run-server
+.PHONY: build test web run-server app-macos app-windows shells android
 
 build:
 	go build -o bin/dschat ./app/osx
@@ -12,3 +12,14 @@ web:
 
 run-server: build
 	./bin/sessionsvr -addr :5218
+
+app-macos:
+	./scripts/build-macos-app.sh
+
+app-windows:
+	./scripts/build-windows-app.sh
+
+shells: app-macos app-windows
+
+android:
+	./scripts/build-android.sh

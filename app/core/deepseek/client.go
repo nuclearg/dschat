@@ -294,6 +294,13 @@ func (c *Client) UploadFile(ctx context.Context, filename, mime string, r io.Rea
 			return "", err
 		}
 	}
+	// 7 天后过期，由 chatsvr 本地 6 天 TTL 提前重传；字段必须在 file 之前。
+	if err := w.WriteField("expires_after[anchor]", "created_at"); err != nil {
+		return "", err
+	}
+	if err := w.WriteField("expires_after[seconds]", "604800"); err != nil {
+		return "", err
+	}
 	part, err := w.CreateFormFile("file", filename)
 	if err != nil {
 		return "", err

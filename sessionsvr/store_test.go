@@ -1,7 +1,10 @@
 package main
 
 import (
+	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"dschat/app/core/apierr"
 	"dschat/app/core/model"
@@ -68,5 +71,135 @@ func TestAppendClaimAndOpenTurn(t *testing.T) {
 	}
 	if len(turns) != 2 || turns[1].Answer == nil || turns[1].Answer.Status != model.StatusAborted {
 		t.Fatalf("turns = %+v", turns)
+	}
+}
+
+func TestSaveAttachment(t *testing.T) {
+	st, err := OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	if err := st.SaveAttachment(Attachment{ID: "A1", Name: "a.txt", MIME: "text/plain"}, strings.NewReader("hello")); err != nil {
+		t.Fatal(err)
+	}
+	path, meta, err := st.AttachmentPath("A1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.Size != 5 || meta.Name != "a.txt" || meta.MIME != "text/plain" {
+		t.Fatalf("meta = %+v", meta)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "hello" {
+		t.Fatalf("blob = %q", data)
+	}
+
+	// Re-uploading the same id replaces the blob.
+	if err := st.SaveAttachment(Attachment{ID: "A1", Name: "a.txt", MIME: "text/plain"}, strings.NewReader("hey")); err != nil {
+		t.Fatal(err)
+	}
+	if path, meta, err = st.AttachmentPath("A1"); err != nil {
+		t.Fatal(err)
+	}
+	if meta.Size != 3 {
+		t.Fatalf("size after replace = %d", meta.Size)
+	}
+	if data, err = os.ReadFile(path); err != nil || string(data) != "hey" {
+		t.Fatalf("blob after replace = %q, %v", data, err)
+	}
+
+	if _, _, err := st.AttachmentPath("missing"); err == nil {
+		t.Fatal("expected ATTACHMENT_NOT_FOUND")
+	}
+}
+
+func TestPasswordAuthTokens(t *testing.T) {
+	st, err := OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	d, _, err := st.CreateDevice("dev-auth", "dev", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	access, refresh, _, err := st.CreateAuthSession(d.ID, time.Minute, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.DeviceByAccess(access)
+	if err != nil || got.ID != d.ID {
+		t.Fatalf("DeviceByAccess = %+v, %v", got, err)
+	}
+	newAccess, newRefresh, _, got, err := st.RotateRefresh(refresh, time.Minute, time.Hour)
+	if err != nil || got.ID != d.ID {
+		t.Fatalf("RotateRefresh = %+v, %v", got, err)
+	}
+	if _, err := st.DeviceByAccess(access); err == nil {
+		t.Fatal("old access token should be revoked after rotation")
+	}
+	if _, _, _, _, err := st.RotateRefresh(refresh, time.Minute, time.Hour); err == nil {
+		t.Fatal("old refresh token must not be reusable")
+	}
+	if _, err := st.DeviceByAccess(newAccess); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RevokeRefresh(newRefresh); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, _, err := st.RotateRefresh(newRefresh, time.Minute, time.Hour); err == nil {
+		t.Fatal("revoked refresh token must fail")
+	}
+}
+
+func TestSoftDeleteAndCleanup(t *testing.T) {
+	dir := t.TempDir()
+	st, err := OpenStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := model.NowMS()
+	sess, err := st.CreateSession("s-soft", "title", "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AppendTurn(sess.ID, "dev", model.Turn{
+		ID: "t-soft", SessionID: sess.ID, ParentTurnID: "0",
+		Q: model.Q{Text: "hello"}, CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	att := Attachment{ID: "att-soft", SessionID: sess.ID, Name: "a.txt", MIME: "text/plain", CreatedAt: now}
+	if err := st.SaveAttachment(att, strings.NewReader("hello")); err != nil {
+		t.Fatal(err)
+	}
+	path, _, err := st.AttachmentPath(att.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteSession(sess.ID, "dev"); err != nil {
+		t.Fatal(err)
+	}
+	if list, err := st.ListSessions(); err != nil || len(list) != 0 {
+		t.Fatalf("list after delete = %v, %v", list, err)
+	}
+	if _, _, err := st.GetSession(sess.ID); err == nil {
+		t.Fatal("deleted session still readable")
+	}
+	n, err := st.CleanupExpired(now + int64(DeletedSessionTTL/time.Millisecond) + 1000)
+	if err != nil || n != 1 {
+		t.Fatalf("cleanup = %d, %v", n, err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("attachment file still exists: %v", err)
+	}
+	if _, _, err := st.GetSession(sess.ID); err == nil {
+		t.Fatal("expired session still readable")
 	}
 }

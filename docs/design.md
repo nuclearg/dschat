@@ -62,7 +62,7 @@
 | 续写 | **不支持** |
 | 会话标题 | DeepSeek API 的 `title: {enabled: true}` |
 | 语音输入 / 朗读 | ASR / TTS，经 chatsvr 代理 |
-| 历史导入 / 导出 | 保留 ZIP 格式，由 chatsvr 处理（待定细节） |
+| 历史导入 | 只导入 DeepSeek 官方 ZIP；合并，不提供导出 |
 | Markdown / 图表 / 公式 / 代码高亮 | 保留前端实现 |
 | 中英文、明暗主题 | 保留 |
 
@@ -198,8 +198,9 @@ blobs(id PK, size, mime, name, path)   -- 可选
 
 ### 6.1 配对与认证
 
-- sessionsvr 启动时生成一次性配对码（6 位，10 分钟有效），打印到日志或通过 CLI 获取。
-- chatsvr 提交 `POST /v1/pair {code, name, platform}`，换回 `{deviceId, token}`。
+- sessionsvr 读取同目录 `config.properties` 的 `PASSWORD`（可为空；为空时打印警告）。
+- chatsvr 提交 `POST /v1/auth.login {password, deviceId, name, platform}`，换回 `{accessToken, refreshToken, expiresIn}`。
+- access 是短 TTL 的随机 token，refresh 用于轮换；两者都只存哈希。
 - 之后所有请求带 `Authorization: Bearer <token>`。
 - 没有账号体系；一个 sessionsvr 只服务一个用户，但可以有多个设备。
 - 设备 id 在首次启动时生成并持久化。重装等于一台新设备，旧会话对它只读，需要 claim 抢回。
@@ -208,31 +209,45 @@ blobs(id PK, size, mime, name, path)   -- 可选
 ### 6.2 接口
 
 ```
-POST   /v1/pair
-GET    /v1/meta
+所有接口只接受 POST，业务成功/失败都返回 HTTP 200，统一 Result 包络：
 
-POST   /v1/sessions                     创建会话（owner = 调用方）
-GET    /v1/sessions                     摘要列表
-GET    /v1/sessions/{id}                整棵树
-PATCH  /v1/sessions/{id}                改标题（owner）
-DELETE /v1/sessions/{id}                删除（owner）
-
-POST   /v1/sessions/{id}/turns          追加 turn（Q）
-POST   /v1/sessions/{id}/turns/{tid}/answer   追加 answer
-POST   /v1/sessions/{id}/claim          抢占 owner
-
-GET    /v1/stream                       SSE 通知
-POST   /v1/blobs                        上传附件原件（待定）
-GET    /v1/blobs/{id}
+```json
+{"success":true,"data":{...}}
+{"success":false,"error":"...","errCode":"NotOwner","data":{...}}
 ```
+
+```
+POST /v1/auth.login
+POST /v1/auth.refresh
+POST /v1/auth.logout
+POST /v1/meta.get
+
+POST /v1/sessions.create                创建会话（owner = 调用方）
+POST /v1/sessions.list                  摘要列表
+POST /v1/sessions.get                   整棵树
+POST /v1/sessions.rename                改标题（owner）
+POST /v1/sessions.delete                删除（owner，软删 7 天）
+
+POST /v1/sessions.turn.append           追加 turn（Q）
+POST /v1/sessions.turn.answer           追加 answer
+POST /v1/sessions.claim                 抢占 owner
+
+POST /v1/stream                         SSE 通知（事件体也是 Result）
+POST /v1/attachments.put                上传附件原件（multipart）
+POST /v1/attachments.head               探测附件
+POST /v1/attachments.get                下载附件原件（成功时二进制）
+```
+
+HTTP 状态码不承载业务语义；只有网络/反代/进程崩溃才可能非 200。SSE 和附件下载是仅有的两个非 JSON 成功响应例外。
 
 ### 6.3 关键请求
 
 **追加 turn**
 
 ```json
-POST /v1/sessions/{id}/turns
+POST /v1/sessions.turn.append
 {
+  "sessionId": "01J...",
   "turn": {
     "id": "01J...",
     "parentTurnId": "01J...",
@@ -248,13 +263,15 @@ POST /v1/sessions/{id}/turns
 ```
 
 sessionsvr 校验：`owner == 调用方`；`parentTurnId` 为 `"0"` 或同会话且已有 answer 的 turn；`turn.id` 未存在。
-返回 `200 {turnId}`。
+返回 `200 {"success":true,"data":{"turnId":"..."}}`。
 
 **追加 answer**
 
 ```json
-POST /v1/sessions/{id}/turns/{tid}/answer
+POST /v1/sessions.turn.answer
 {
+  "sessionId": "01J...",
+  "turnId": "01J...",
   "answer": {
     "status": "done",
     "stopReason": "end_turn",
@@ -269,26 +286,26 @@ POST /v1/sessions/{id}/turns/{tid}/answer
 ```
 
 sessionsvr 校验：`owner == 调用方`；turn 属于该会话；turn 还没有 answer。
-返回 `200`。重复提交同一条 answer（例如响应丢失后手动重试）按幂等处理：内容一致返回 `200`，不一致返回 `409 ANSWER_EXISTS`。
+返回 `200 {"success":true}`。重复提交同一条 answer（例如响应丢失后手动重试）按幂等处理：内容一致返回 `200`，不一致返回 `200 {"success":false,"errCode":"AnswerExists"}`。
 
 **抢占**
 
 ```json
-POST /v1/sessions/{id}/claim
-{ "force": false }
+POST /v1/sessions.claim
+{ "sessionId": "01J...", "force": false }
 ```
 
-- 若 owner 已是自己：直接 `200`。
-- 若会话存在 open turn 且 `force == false`：`409 OPEN_TURN`，并带上 `turnId`。
-- `force == true`：原子地把 owner 改成调用方，返回 `200`。
+- 若 owner 已是自己：直接 `200 {"success":true,"data":{"session":...}}`。
+- 若会话存在 open turn 且 `force == false`：`200 {"success":false,"errCode":"OpenTurn","data":{"turnId":"..."}}`。
+- `force == true`：原子地把 owner 改成调用方，返回 `200` Result。
 
 **SSE**
 
 ```
-event: hello        {protocol, serverId}
-event: session      {id, ownerDeviceId, updatedAt}
-event: turn         {sessionId, turnId, parentTurnId}
-event: answer       {sessionId, turnId}
+data: {"success":true,"data":{"type":"hello","protocol":3,"serverId":"..."}}
+data: {"success":true,"data":{"type":"session","sessionId":"...","ownerDeviceId":"..."}}
+data: {"success":true,"data":{"type":"turn","sessionId":"...","turnId":"...","parentTurnId":"..."}}
+data: {"success":true,"data":{"type":"answer","sessionId":"...","turnId":"..."}}
 event: deleted      {sessionId}
 ```
 
@@ -324,7 +341,7 @@ event: deleted      {sessionId}
 
 1. web 调 `POST /api/sessions/{id}/turns`，带 Q 与附件。
 2. chatsvr 在本地建 turn（open），把当前可见路径的叶子设为它。
-3. 如果是同步会话：首次发问前先 `POST /v1/sessions` 创建会话，再 `POST /v1/turns` 上报 Q。任何一步失败都不发起生成，界面提示重试。
+3. 如果是同步会话：首次发问前先 `POST /v1/sessions.create` 创建会话，再 `POST /v1/sessions.turn.append` 上报 Q。任何一步失败都不发起生成，界面提示重试。
 4. chatsvr 组装上下文（从 `"0"` 沿可见路径到新 turn 的父节点；aborted 的 turn 连同它的 Q 一起跳过，避免出现连续两条 user 消息），上传附件到 DeepSeek Files API，发起流式请求。
 5. 生成过程中，chatsvr 通过本地 SSE 把增量推给 web；web 只渲染，不落库。
 
@@ -349,7 +366,16 @@ chatsvr 启动时：
 - 对每个会话，若存在本设备所有、且本地也没有 pending answer 的 open turn，补一条 aborted answer 闭合（生成已经不可能恢复）。
 - 若有 pending answer，保留并提示「上次回答未同步」，允许重试。
 
-### 7.4 红色残片
+### 7.4 删除与同步
+
+- chatsvr 删除会话时先要求 sessionsvr 软删除成功，再物理删除本地 session、turn/answer、selections/drafts/local_output 和附件文件。
+- sessionsvr 只把 `deleted_at` 置为当前时间，列表/读取/写入都排除已删会话；7 天后清理任务硬删 session 及附件 blob。
+- 在线设备收到 SSE `deleted` 后立即本地物理删除。
+- 离线设备重连时，`syncAll` 先拿本地会话快照，再拉远端列表；`sync_state=synced` 但远端已不存在的会话会被本地删除。
+- `local`（从未上云）会话不会被对账逻辑误删。
+- 设置里的“删除所有本地对话”遍历本地 sessions，只对本设备 owner 的会话调用上述删除；其他设备 owner 的只读会话跳过并计数。
+
+### 7.5 红色残片
 
 只有一种情况产生：turn 已 open、A 已生成或生成中，但本设备失去了 owner。
 
@@ -434,11 +460,11 @@ app/core/              # 全平台共用（纯 Go，无 UI 框架、无平台专
   apierr/  httpx/      # 错误与 HTTP 辅助
   web/                 # 内嵌前端（go:embed）
 
-app/desktop/           # macOS + Windows 共用：单实例、拉起浏览器（托盘后续加）
+app/desktop/           # macOS + Windows 共用：引擎启动、菜单栏/托盘、拉起浏览器
 app/osx/               # darwin：薄 main + 打包资源
-app/win/               # windows：薄 main + 打包资源（待做）
-app/mobile/             # gomobile 门面，Android + iOS 共用（待做）
-app/android/           # Kotlin + Gradle + WebView 壳（待做）
+app/win/               # Windows：入口、托盘、exe 资源
+app/mobile/            # gomobile 门面，Android + iOS 共用（Android 已实现）
+app/android/           # Kotlin + Gradle + WebView + 前台 Service（debug 已构建）
 app/ios/               # Swift + Xcode + WKWebView 壳（规划）
 
 sessionsvr/            # 同步服务，单二进制
@@ -466,7 +492,7 @@ POST   /api/sessions/{id}/upload               把本地会话上传到 sessions
 GET    /api/events                             SSE：增量、状态、错误
 POST   /api/attachments                        附件上传
 GET    /api/settings  POST /api/settings       设置（key 只写不读）
-POST   /api/server/pair  POST /api/server/disconnect
+POST   /api/server/login  POST /api/server/disconnect
 ```
 
 ### 10.3 本地鉴权
@@ -515,14 +541,14 @@ POST   /api/server/pair  POST /api/server/disconnect
 - 只存树、owner、设备、可选 blob。
 - 不执行模型请求，不感知「生成中」，没有租约与超时。
 - 写操作严格校验 owner。
-- 单用户；配对码绑定设备。
+- 单用户；密码只用于换取 access/refresh token。
 
 ### 12.2 部署
 
 - 单二进制，Docker 镜像（多阶段构建，最终 alpine 或 distroless）。
 - 数据卷：SQLite 文件 + blob 目录。
-- 配置：监听地址、数据目录、TLS（建议由 Caddy/Traefik 终止）、配对码有效期。
-- 健康检查：`GET /v1/meta`。
+- 配置：监听地址、数据目录、同目录 `config.properties` 的 `PASSWORD`；TLS 建议由反代终止。
+- 健康检查：`POST /v1/meta.get`。
 - 备份：停写或用 SQLite 在线备份，连同 blob 目录一起打包。
 
 ### 12.3 规模
@@ -532,6 +558,8 @@ POST   /api/server/pair  POST /api/server/disconnect
 ---
 
 ## 13. Android
+
+实现状态：debug APK 已在 API 37 arm64 模拟器上安装、启动并验证引擎/前台服务/WebView；release 签名与上架未做。
 
 - 引擎：`gomobile bind` 产出 AAR，进程内起本地 HTTP，监听 `127.0.0.1` 随机端口。
 - UI：WebView 加载同一套前端静态资源。
@@ -566,7 +594,7 @@ POST   /api/server/pair  POST /api/server/disconnect
 | API key | OS keychain；只在 chatsvr 内存中使用；不落库、不出现在日志与错误信息里 |
 | key 的出站 | 只发往配置的 DeepSeek API origin；origin 不可由页面指定 |
 | 本地 API | 127.0.0.1 + 一次性 token + HttpOnly Cookie + Origin 校验 |
-| sessionsvr | HTTPS + Bearer token；配对码一次性；token 只存哈希 |
+| sessionsvr | HTTPS + Bearer access token；密码换 refresh；token 只存哈希 |
 | 附件 | 本地原件权限 0600；blob 目录按用户隔离 |
 | 日志 | 统一脱敏；请求体不落日志 |
 | 传输 | web ↔ chatsvr 明文但仅回环；chatsvr ↔ sessionsvr 必须 TLS |
@@ -596,8 +624,8 @@ POST   /api/server/pair  POST /api/server/disconnect
 | M0 | chatsvr + web 本地版，功能对齐 demo（无同步） | 4–6 周 |
 | M1 | sessionsvr、配对、appendTurn/appendAnswer、只读观察 | 2–3 周 |
 | M2 | claim、open turn 闭合、失败重试与自检 | 1–2 周 |
-| M3 | 托盘壳、打包、签名 | 1 周 |
-| M4 | Android（引擎 AAR + WebView + 前台服务） | 2–3 周 |
+| M3 | 托盘壳、打包、签名（菜单栏/托盘已完成；签名/安装包未做） | 1 周 |
+| M4 | Android（引擎 AAR + WebView + 前台服务；debug 已完成） | 2–3 周 |
 | M5 | 官方共享 key / 网关 / 计费（暂缓） | 3–4 周 |
 | M6 | iOS（规划） | — |
 
@@ -605,16 +633,16 @@ POST   /api/server/pair  POST /api/server/disconnect
 
 ## 18. 待定
 
-1. **附件是否上传原件到 sessionsvr。**
-   建议：是，content-addressed blob，按会话懒上传，单文件上限 50MB。否则换设备后附件只剩文件名，且无法用新 key 重新引用。
+1. **附件原件同步（已实现）。**
+   sessionsvr 存 blob；chatsvr 在 append turn 前上传，其他设备 pull 时下载。DeepSeek `file_id` 不跨设备同步，每台设备用自己的 key 重新上传，本地缓存 6 天。
 2. **本地已有会话在登录后如何处理。**
    建议：默认只同步新建会话；已有会话由用户显式「上传到 sessionsvr」，走一次性批量导入接口。
 3. **抢占是否弹确认。**
    建议：会话存在 open turn 时弹；否则直接接管。
-4. **历史导入 / 导出的边界。**
-   导入的会话是本地独有；导出是否包含红色残片、是否包含原件，需要定。
-5. **删除会话是硬删还是墓碑。**
-   建议：硬删；其他设备在下次拉列表时消失。
+4. **历史导入边界（已定）。**
+   只导入 DeepSeek 官方 ZIP；合并，重复导入产生副本；不提供导出。已配对的设备在导入后自动上传为新 sessionsvr 会话；非图片附件只有元数据。
+5. **删除会话是硬删还是墓碑（已定）。**
+   chatsvr 物理删除；sessionsvr 软删除（`deleted_at`），7 天后硬删并清理附件 blob；删除事件广播到所有在线设备，离线设备重连时按远端列表对账删除本地 synced 会话。
 6. **草稿是否进 chatsvr。**
    建议：进，避免刷新丢失；草稿不参与同步。
 7. **退出登录后，已同步会话怎么处理。**

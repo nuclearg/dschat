@@ -21,7 +21,12 @@ export class ApiError extends Error {
 }
 
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
-  const res = await fetch(path, { credentials: 'same-origin', ...init })
+  const headers = new Headers(init?.headers)
+  headers.set(
+    'X-Language',
+    document.documentElement.lang || navigator.language || 'zh-CN'
+  )
+  const res = await fetch(path, { credentials: 'same-origin', ...init, headers })
   const text = await res.text()
   let data: unknown = null
   try {
@@ -155,6 +160,11 @@ export const renameSession = (id: string, title: string) =>
 export const deleteSession = (id: string) =>
   request<{ ok: boolean }>(`/api/sessions/${id}`, { method: 'DELETE' })
 
+export type DeleteAllResult = { deleted: number; skipped: number; failed: number }
+
+export const deleteAllSessions = () =>
+  request<DeleteAllResult>('/api/sessions', { method: 'DELETE' })
+
 export const sendTurn = (sessionId: string, text: string, attachmentIds: string[]) =>
   request<ApiTurn>(`/api/sessions/${sessionId}/turns`, json('POST', { text, attachmentIds }))
 export const retryTurn = (sessionId: string, turnId: string) =>
@@ -170,20 +180,56 @@ export const syncSession = (sessionId: string) =>
 export const claimSession = (sessionId: string, force = true) =>
   request<{ ok: boolean }>(`/api/sessions/${sessionId}/claim`, json('POST', { force }))
 
+export type ImportFilePayload = {
+  id: string
+  name: string
+  mime: string
+  size: number
+  isImage: boolean
+}
+
+export type ImportMessagePayload = {
+  id: string
+  role: 'user' | 'assistant'
+  createdAt: number
+  parentId: string | null
+  selectedChildId: string | null
+  content?: string
+  files?: ImportFilePayload[]
+  blocks?: unknown[]
+  status?: string
+  thinking?: boolean
+  search?: boolean
+}
+
+export type ImportSessionPayload = {
+  title: string
+  createdAt: number
+  updatedAt: number
+  messages: ImportMessagePayload[]
+}
+
+export const importSession = (payload: ImportSessionPayload) =>
+  request<{ session: ApiSession; synced: boolean; warning?: string }>(
+    '/api/sessions/import',
+    json('POST', payload)
+  )
+
 export const uploadAttachment = async (
   blob: Blob,
   name: string,
+  mime?: string,
   signal?: AbortSignal
 ): Promise<ApiAttachment> => {
   const form = new FormData()
-  form.append('file', blob, name)
+  form.append('file', mime ? new Blob([blob], { type: mime }) : blob, name)
   return request<ApiAttachment>('/api/attachments', { method: 'POST', body: form, signal })
 }
 
-export const pairServer = (url: string, code: string) =>
+export const loginServer = (url: string, password: string) =>
   request<{ paired: boolean; url: string; deviceId: string }>(
-    '/api/server/pair',
-    json('POST', { url, code })
+    '/api/server/login',
+    json('POST', { url, password })
   )
 export const disconnectServer = () =>
   request<{ paired: boolean }>('/api/server/disconnect', { method: 'POST' })

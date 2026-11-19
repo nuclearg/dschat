@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -202,6 +203,15 @@ func (a *App) Send(sessionID string, req SendRequest) (*model.Turn, error) {
 	}
 	if strings.TrimSpace(q.Text) == "" && len(q.Attachments) == 0 {
 		return nil, apierr.New(400, "EMPTY", "question is empty")
+	}
+	if sess.SyncState == SyncSynced {
+		// 先确保 sessionsvr 有 blob，再 append turn；否则别的设备会拿到元数据却没有文件。
+		upCtx, upCancel := context.WithTimeout(a.baseCtx(), 60*time.Second)
+		err := a.ensureRemoteAttachments(upCtx, sessionID, q.Attachments)
+		upCancel()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	now := model.NowMS()
@@ -483,6 +493,34 @@ func (a *App) Rename(sessionID, title string) error {
 	return nil
 }
 
+type DeleteAllResult struct {
+	Deleted int `json:"deleted"`
+	Skipped int `json:"skipped"`
+	Failed  int `json:"failed"`
+}
+
+// DeleteAllOwned deletes every local session owned by this device. Sessions
+// owned by another device are read-only and are intentionally left in place.
+func (a *App) DeleteAllOwned() (DeleteAllResult, error) {
+	var result DeleteAllResult
+	sessions, err := a.store.Sessions()
+	if err != nil {
+		return result, err
+	}
+	for _, sess := range sessions {
+		if sess.OwnerID != a.deviceID {
+			result.Skipped++
+			continue
+		}
+		if err := a.Delete(sess.ID); err != nil {
+			result.Failed++
+			continue
+		}
+		result.Deleted++
+	}
+	return result, nil
+}
+
 func (a *App) Delete(sessionID string) error {
 	sess, err := a.store.Session(sessionID)
 	if err != nil {
@@ -492,16 +530,40 @@ func (a *App) Delete(sessionID string) error {
 		if sess.OwnerID != a.deviceID {
 			return apierr.New(409, "READ_ONLY", "session is owned by another device")
 		}
-		if s := a.Sync(); s != nil {
-			ctx, cancel := context.WithTimeout(a.baseCtx(), 15*time.Second)
-			defer cancel()
-			if err := s.DeleteSession(ctx, sessionID); err != nil {
-				return err
+		s := a.Sync()
+		if s == nil {
+			return apierr.New(400, "NO_SERVER", "not connected to a sessionsvr")
+		}
+		ctx, cancel := context.WithTimeout(a.baseCtx(), 15*time.Second)
+		defer cancel()
+		if err := s.DeleteSession(ctx, sessionID); err != nil {
+			var remote *RemoteError
+			if errors.As(err, &remote) && remote.Code == "SessionNotFound" {
+				return a.deleteLocalSession(sessionID)
 			}
+			return err
 		}
 	}
-	if err := a.store.DeleteSession(sessionID); err != nil {
+	return a.deleteLocalSession(sessionID)
+}
+
+// deleteLocalSession cancels any active generation and removes the session,
+// its local rows, and its attachment files.
+func (a *App) deleteLocalSession(sessionID string) error {
+	a.mu.Lock()
+	if at := a.active[sessionID]; at != nil {
+		at.markPreempted()
+		at.cancel()
+	}
+	delete(a.active, sessionID)
+	a.mu.Unlock()
+
+	paths, err := a.store.DeleteSessionWithAttachments(sessionID)
+	if err != nil {
 		return err
+	}
+	for _, path := range paths {
+		_ = os.Remove(path)
 	}
 	a.emit(map[string]any{"type": "session_deleted", "sessionId": sessionID})
 	return nil
@@ -770,7 +832,7 @@ func usableAnswer(a *model.Answer) bool {
 func (a *App) userContent(ctx context.Context, client *deepseek.Client, q model.Q) (any, bool, error) {
 	var blocks []any
 	for _, att := range q.Attachments {
-		fileID, err := a.ensureFileID(ctx, client, att.ID)
+		fileID, err := a.ensureFileID(ctx, client, att)
 		if err != nil {
 			return nil, false, err
 		}
@@ -857,8 +919,9 @@ func (a *App) onRemoteEvent(ev RemoteEvent) {
 	case "turn", "answer":
 		go a.pullSession(a.baseCtx(), ev.SessionID)
 	case "deleted":
-		_ = a.store.DeleteSession(ev.SessionID)
-		a.emit(map[string]any{"type": "session_deleted", "sessionId": ev.SessionID})
+		if err := a.deleteLocalSession(ev.SessionID); err != nil {
+			log.Printf("delete session %s: %v", ev.SessionID, err)
+		}
 		return
 	}
 	a.emit(map[string]any{"type": "remote_changed", "sessionId": ev.SessionID})
@@ -895,6 +958,11 @@ func (a *App) pullSession(ctx context.Context, sessionID string) error {
 		if t.Answer != nil {
 			_ = a.store.PutAnswer(t.ID, *t.Answer, SyncSynced)
 		}
+		for _, att := range t.Q.Attachments {
+			if _, err := a.ensureLocalAttachment(ctx, att, sessionID); err != nil {
+				log.Printf("pull attachment %s: %v", att.ID, err)
+			}
+		}
 	}
 	a.emit(map[string]any{"type": "remote_changed", "sessionId": sessionID})
 	return nil
@@ -907,13 +975,31 @@ func (a *App) syncAll(ctx context.Context) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
+	local, localErr := a.store.Sessions()
+	if localErr != nil {
+		log.Printf("sync local list: %v", localErr)
+		return
+	}
 	list, err := s.ListSessions(ctx)
 	if err != nil {
 		log.Printf("sync list: %v", err)
 		return
 	}
+	remote := make(map[string]bool, len(list))
+	for _, rs := range list {
+		remote[rs.ID] = true
+	}
 	for _, rs := range list {
 		_ = a.pullSession(ctx, rs.ID)
+	}
+	// A soft-deleted session disappears from the remote list. Reconcile it
+	// locally so devices that were offline during the delete also remove it.
+	for _, sess := range local {
+		if sess.SyncState == SyncSynced && !remote[sess.ID] {
+			if err := a.deleteLocalSession(sess.ID); err != nil {
+				log.Printf("sync delete %s: %v", sess.ID, err)
+			}
+		}
 	}
 	a.emit(map[string]any{"type": "sessions_changed"})
 }

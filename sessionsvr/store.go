@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +19,7 @@ import (
 	"dschat/app/core/xdb"
 )
 
-const ProtocolVersion = 1
+const ProtocolVersion = 3
 
 type Device struct {
 	ID        string
@@ -33,8 +34,11 @@ type SessionSummary struct {
 }
 
 type Store struct {
-	db *sql.DB
+	db  *sql.DB
+	dir string
 }
+
+const maxAttachmentSize = 64 << 20
 
 func OpenStore(dir string) (*Store, error) {
 	db, err := xdb.Open(filepath.Join(dir, "sessionsvr.db"))
@@ -45,7 +49,7 @@ func OpenStore(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{db: db}, nil
+	return &Store{db: db, dir: dir}, nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -66,7 +70,8 @@ create table if not exists sessions (
   title text not null default '',
   owner_device_id text not null,
   created_at integer not null,
-  updated_at integer not null
+  updated_at integer not null,
+  deleted_at integer not null default 0
 );
 create table if not exists turns (
   id text primary key,
@@ -82,12 +87,212 @@ create table if not exists answers (
   a_json text not null,
   created_at integer not null
 );
+create table if not exists auth_sessions (
+  id text primary key,
+  device_id text not null references devices(id) on delete cascade,
+  access_hash text not null unique,
+  access_expires_at integer not null,
+  refresh_hash text not null unique,
+  refresh_expires_at integer not null,
+  revoked_at integer not null default 0,
+  created_at integer not null,
+  last_used_at integer not null default 0
+);
+create index if not exists auth_sessions_device on auth_sessions(device_id);
+create table if not exists attachments (
+  id text primary key,
+  session_id text not null default '',
+  name text not null,
+  mime text not null,
+  size integer not null,
+  sha256 text not null default '',
+  created_at integer not null
+);
 `
 	if _, err := db.Exec(schema); err != nil {
 		return err
 	}
+	_, _ = db.Exec(`alter table sessions add column deleted_at integer not null default 0`)
 	_, _ = db.Exec(`insert or ignore into meta(key, value) values('server_id', ?)`, model.NewID())
 	return nil
+}
+
+type Attachment struct {
+	ID        string `json:"id"`
+	SessionID string `json:"sessionId,omitempty"`
+	Name      string `json:"name"`
+	MIME      string `json:"mime"`
+	Size      int64  `json:"size"`
+	SHA256    string `json:"sha256,omitempty"`
+	CreatedAt int64  `json:"createdAt"`
+}
+
+func (s *Store) attachmentDir() string { return filepath.Join(s.dir, "attachments") }
+
+// SaveAttachment writes the blob atomically and upserts its metadata.
+func (s *Store) SaveAttachment(a Attachment, r io.Reader) error {
+	if a.ID == "" || strings.ContainsAny(a.ID, "/\\") {
+		return apierr.New(400, "INVALID_ATTACHMENT", "invalid attachment id")
+	}
+	dir := s.attachmentDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".upload-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	h := sha256.New()
+	n, err := io.Copy(io.MultiWriter(tmp, h), io.LimitReader(r, maxAttachmentSize+1))
+	closeErr := tmp.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	if n > maxAttachmentSize {
+		return apierr.New(413, "FILE_TOO_LARGE", "attachment is too large")
+	}
+	path := filepath.Join(dir, a.ID)
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	a.Size = n
+	a.SHA256 = hex.EncodeToString(h.Sum(nil))
+	if a.CreatedAt == 0 {
+		a.CreatedAt = model.NowMS()
+	}
+	if _, err := s.db.Exec(`insert or replace into attachments(id,session_id,name,mime,size,sha256,created_at)
+values(?,?,?,?,?,?,?)`, a.ID, a.SessionID, a.Name, a.MIME, a.Size, a.SHA256, a.CreatedAt); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	return nil
+}
+
+func (s *Store) CreateAuthSession(deviceID string, accessTTL, refreshTTL time.Duration) (string, string, int64, error) {
+	access, err := newToken()
+	if err != nil {
+		return "", "", 0, err
+	}
+	refresh, err := newToken()
+	if err != nil {
+		return "", "", 0, err
+	}
+	now := time.Now()
+	accessExp := now.Add(accessTTL)
+	refreshExp := now.Add(refreshTTL)
+	_, err = s.db.Exec(`insert into auth_sessions(id,device_id,access_hash,access_expires_at,refresh_hash,refresh_expires_at,revoked_at,created_at,last_used_at)
+values(?,?,?,?,?,?,0,?,0)`,
+		model.NewID(), deviceID, hashToken(access), accessExp.UnixMilli(), hashToken(refresh), refreshExp.UnixMilli(), now.UnixMilli())
+	if err != nil {
+		return "", "", 0, err
+	}
+	return access, refresh, int64(accessTTL / time.Second), nil
+}
+
+func (s *Store) DeviceByAccess(token string) (*Device, error) {
+	var d Device
+	err := s.db.QueryRow(`
+select d.id,d.name,d.platform,d.created_at
+from auth_sessions a join devices d on d.id=a.device_id
+where a.access_hash=? and a.revoked_at=0 and a.access_expires_at>?`,
+		hashToken(token), time.Now().UnixMilli()).
+		Scan(&d.ID, &d.Name, &d.Platform, &d.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, apierr.New(401, "UNAUTHORIZED", "invalid or expired access token")
+	}
+	if err != nil {
+		return nil, err
+	}
+	_, _ = s.db.Exec(`update auth_sessions set last_used_at=? where access_hash=?`, model.NowMS(), hashToken(token))
+	return &d, nil
+}
+
+func (s *Store) RotateRefresh(token string, accessTTL, refreshTTL time.Duration) (string, string, int64, *Device, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", "", 0, nil, err
+	}
+	defer tx.Rollback()
+	var id, deviceID string
+	var refreshExp, revokedAt int64
+	err = tx.QueryRow(`select id,device_id,refresh_expires_at,revoked_at from auth_sessions where refresh_hash=?`, hashToken(token)).
+		Scan(&id, &deviceID, &refreshExp, &revokedAt)
+	if errors.Is(err, sql.ErrNoRows) || revokedAt != 0 || refreshExp < time.Now().UnixMilli() {
+		return "", "", 0, nil, apierr.New(401, "UNAUTHORIZED", "invalid or expired refresh token")
+	}
+	if err != nil {
+		return "", "", 0, nil, err
+	}
+	var d Device
+	if err := tx.QueryRow(`select id,name,platform,created_at from devices where id=?`, deviceID).
+		Scan(&d.ID, &d.Name, &d.Platform, &d.CreatedAt); err != nil {
+		return "", "", 0, nil, err
+	}
+	if _, err := tx.Exec(`update auth_sessions set revoked_at=? where id=?`, model.NowMS(), id); err != nil {
+		return "", "", 0, nil, err
+	}
+	access, err := newToken()
+	if err != nil {
+		return "", "", 0, nil, err
+	}
+	refresh, err := newToken()
+	if err != nil {
+		return "", "", 0, nil, err
+	}
+	now := time.Now()
+	if _, err := tx.Exec(`insert into auth_sessions(id,device_id,access_hash,access_expires_at,refresh_hash,refresh_expires_at,revoked_at,created_at,last_used_at)
+values(?,?,?,?,?,?,0,?,0)`,
+		model.NewID(), deviceID, hashToken(access), now.Add(accessTTL).UnixMilli(), hashToken(refresh), now.Add(refreshTTL).UnixMilli(), now.UnixMilli()); err != nil {
+		return "", "", 0, nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", "", 0, nil, err
+	}
+	return access, refresh, int64(accessTTL / time.Second), &d, nil
+}
+
+func (s *Store) RevokeRefresh(token string) error {
+	_, err := s.db.Exec(`update auth_sessions set revoked_at=? where refresh_hash=? and revoked_at=0`, model.NowMS(), hashToken(token))
+	return err
+}
+
+func (s *Store) ClearAuthSessions() error {
+	_, err := s.db.Exec(`delete from auth_sessions`)
+	return err
+}
+
+func (s *Store) AttachmentMeta(id string) (*Attachment, error) {
+	var a Attachment
+	err := s.db.QueryRow(`select id,session_id,name,mime,size,sha256,created_at from attachments where id=?`, id).
+		Scan(&a.ID, &a.SessionID, &a.Name, &a.MIME, &a.Size, &a.SHA256, &a.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, apierr.New(404, "ATTACHMENT_NOT_FOUND", "attachment not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+func (s *Store) AttachmentPath(id string) (string, *Attachment, error) {
+	a, err := s.AttachmentMeta(id)
+	if err != nil {
+		return "", nil, err
+	}
+	path := filepath.Join(s.attachmentDir(), a.ID)
+	if _, err := os.Stat(path); err != nil {
+		return "", nil, apierr.New(404, "ATTACHMENT_NOT_FOUND", "attachment file missing")
+	}
+	return path, a, nil
 }
 
 func (s *Store) ServerID() (string, error) {
@@ -165,7 +370,7 @@ func (s *Store) ListSessions() ([]SessionSummary, error) {
 select s.id, s.title, s.owner_device_id, s.created_at, s.updated_at,
   exists(select 1 from turns t left join answers a on a.turn_id=t.id
          where t.session_id=s.id and a.turn_id is null) as open_turn
-from sessions s order by s.updated_at desc`)
+from sessions s where s.deleted_at=0 order by s.updated_at desc`)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +388,7 @@ from sessions s order by s.updated_at desc`)
 
 func (s *Store) GetSession(id string) (*model.Session, []model.Turn, error) {
 	var x model.Session
-	err := s.db.QueryRow(`select id,title,owner_device_id,created_at,updated_at from sessions where id=?`, id).
+	err := s.db.QueryRow(`select id,title,owner_device_id,created_at,updated_at from sessions where id=? and deleted_at=0`, id).
 		Scan(&x.ID, &x.Title, &x.OwnerID, &x.CreatedAt, &x.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, apierr.New(404, "SESSION_NOT_FOUND", "session not found")
@@ -225,7 +430,7 @@ where t.session_id=? order by t.created_at asc, t.id asc`, id)
 
 func (s *Store) ownerOf(tx *sql.Tx, sessionID string) (string, error) {
 	var owner string
-	err := tx.QueryRow(`select owner_device_id from sessions where id=?`, sessionID).Scan(&owner)
+	err := tx.QueryRow(`select owner_device_id from sessions where id=? and deleted_at=0`, sessionID).Scan(&owner)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", apierr.New(404, "SESSION_NOT_FOUND", "session not found")
 	}
@@ -374,7 +579,7 @@ where t.session_id=? and a.turn_id is null limit 1`, sessionID).Scan(&openTurn)
 
 func (s *Store) GetSessionMeta(id string) (*model.Session, error) {
 	var x model.Session
-	err := s.db.QueryRow(`select id,title,owner_device_id,created_at,updated_at from sessions where id=?`, id).
+	err := s.db.QueryRow(`select id,title,owner_device_id,created_at,updated_at from sessions where id=? and deleted_at=0`, id).
 		Scan(&x.ID, &x.Title, &x.OwnerID, &x.CreatedAt, &x.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, apierr.New(404, "SESSION_NOT_FOUND", "session not found")
@@ -384,13 +589,13 @@ func (s *Store) GetSessionMeta(id string) (*model.Session, error) {
 
 func (s *Store) sessionIn(tx *sql.Tx, id string) (*model.Session, error) {
 	var x model.Session
-	err := tx.QueryRow(`select id,title,owner_device_id,created_at,updated_at from sessions where id=?`, id).
+	err := tx.QueryRow(`select id,title,owner_device_id,created_at,updated_at from sessions where id=? and deleted_at=0`, id).
 		Scan(&x.ID, &x.Title, &x.OwnerID, &x.CreatedAt, &x.UpdatedAt)
 	return &x, err
 }
 
 func (s *Store) Rename(sessionID, caller, title string) error {
-	res, err := s.db.Exec(`update sessions set title=?, updated_at=? where id=? and owner_device_id=?`,
+	res, err := s.db.Exec(`update sessions set title=?, updated_at=? where id=? and owner_device_id=? and deleted_at=0`,
 		title, model.NowMS(), sessionID, caller)
 	if err != nil {
 		return err
@@ -411,23 +616,91 @@ func (s *Store) Rename(sessionID, caller, title string) error {
 
 func (s *Store) owner(sessionID string) (string, error) {
 	var owner string
-	err := s.db.QueryRow(`select owner_device_id from sessions where id=?`, sessionID).Scan(&owner)
+	err := s.db.QueryRow(`select owner_device_id from sessions where id=? and deleted_at=0`, sessionID).Scan(&owner)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", apierr.New(404, "SESSION_NOT_FOUND", "session not found")
 	}
 	return owner, err
 }
 
+// DeleteSession soft-deletes a session. Blobs and rows are removed by
+// CleanupExpired after the seven-day recovery window.
 func (s *Store) DeleteSession(sessionID, caller string) error {
-	owner, err := s.owner(sessionID)
+	var owner string
+	var deletedAt int64
+	err := s.db.QueryRow(`select owner_device_id, deleted_at from sessions where id=?`, sessionID).Scan(&owner, &deletedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return apierr.New(404, "SESSION_NOT_FOUND", "session not found")
+	}
 	if err != nil {
 		return err
+	}
+	if deletedAt > 0 {
+		// Idempotent retry after a lost response.
+		return nil
 	}
 	if owner != caller {
 		return apierr.New(409, "NOT_OWNER", "caller is not the session owner")
 	}
-	_, err = s.db.Exec(`delete from sessions where id=?`, sessionID)
+	_, err = s.db.Exec(`update sessions set deleted_at=?, updated_at=? where id=? and deleted_at=0`,
+		model.NowMS(), model.NowMS(), sessionID)
 	return err
+}
+
+const DeletedSessionTTL = 7 * 24 * time.Hour
+
+// CleanupExpired hard-deletes soft-deleted sessions whose recovery window has
+// elapsed, including attachment blobs.
+func (s *Store) CleanupExpired(cutoff int64) (int, error) {
+	rows, err := s.db.Query(`select id from sessions where deleted_at>0 and deleted_at<=?`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	removed := 0
+	for _, id := range ids {
+		attRows, err := s.db.Query(`select id from attachments where session_id=?`, id)
+		if err != nil {
+			return removed, err
+		}
+		var attachmentIDs []string
+		for attRows.Next() {
+			var aid string
+			if err := attRows.Scan(&aid); err == nil {
+				attachmentIDs = append(attachmentIDs, aid)
+			}
+		}
+		attRows.Close()
+		tx, err := s.db.Begin()
+		if err != nil {
+			return removed, err
+		}
+		if _, err := tx.Exec(`delete from attachments where session_id=?`, id); err != nil {
+			tx.Rollback()
+			return removed, err
+		}
+		if _, err := tx.Exec(`delete from sessions where id=?`, id); err != nil {
+			tx.Rollback()
+			return removed, err
+		}
+		if err := tx.Commit(); err != nil {
+			return removed, err
+		}
+		for _, aid := range attachmentIDs {
+			_ = os.Remove(filepath.Join(s.attachmentDir(), aid))
+		}
+		removed++
+	}
+	return removed, nil
 }
 
 func (s *Store) TouchDevice(id string) {

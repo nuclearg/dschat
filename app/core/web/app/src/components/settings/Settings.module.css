@@ -204,6 +204,43 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
+/* 首次配置的分步引导：不抢输入框的注意力，弱化处理 */
+.apiKeyGuide {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+
+  & li + li {
+    margin-top: 2px;
+  }
+}
+
+.apiKeyGuideLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+  color: var(--dsw-alias-brand-text);
+  text-decoration: none;
+  white-space: nowrap;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.apiKeyHint {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.error .apiKeyGuideLink {
+  margin-left: 8px;
+}
+
 .apiKey {
   display: flex;
   flex-direction: column;

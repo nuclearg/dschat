@@ -5,7 +5,7 @@ import {
   Q_PREFIX,
   bootstrap as apiBootstrap,
   disconnectServer as apiDisconnectServer,
-  pairServer as apiPairServer,
+  loginServer as apiLoginServer,
   type ApiServer,
   claimSession,
   createSession,
@@ -101,7 +101,7 @@ const clearStreaming = (sessionId: string) => {
   })
 }
 
-const refreshSessions = async () => {
+export const refreshSessions = async () => {
   try {
     const res = await listSessions()
     const sessions = res.sessions.map(toSummary).sort((a, b) => b.updatedAt - a.updatedAt)
@@ -158,8 +158,8 @@ export const initChat = (): Promise<void> => {
   return bootstrapTask
 }
 
-export const pairServer = async (url: string, code: string) => {
-  const result = await apiPairServer(url, code)
+export const loginServer = async (url: string, password: string) => {
+  const result = await apiLoginServer(url, password)
   set({ server: { paired: true, url: result.url, deviceId: result.deviceId } })
   await refreshSessions()
   return result

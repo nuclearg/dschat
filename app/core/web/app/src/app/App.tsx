@@ -14,7 +14,7 @@ import { closeSearchPanel } from '../components/search/searchPanelState.js'
 import { SessionView } from '../components/session/SessionView.js'
 import { MobileHeader } from '../components/session/MobileHeader.js'
 import { Welcome } from '../components/session/Welcome.js'
-import { ensureApiKey } from '../components/settings/settingsDialogState.js'
+import { ensureApiKey, openSettings } from '../components/settings/settingsDialogState.js'
 import { SettingsDialog } from '../components/settings/SettingsDialog.js'
 import { Toast } from '../components/base/Toast.js'
 import { showToast } from '../components/base/toastState.js'
@@ -70,8 +70,19 @@ export const App = () => {
   useEffect(closeMobileSider, [activeId, isMobile])
 
   useEffect(() => {
-    // 先拿到 chatsvr 的设置，再决定是否弹出 API Key 配置
-    void initChat().then(() => ensureApiKey())
+    // 先拿到 chatsvr 的设置，再决定是否弹出 API Key 配置。
+    // 托盘「配置」会带 ?settings=1 打开设置，并把这个标记从地址栏去掉。
+    void initChat().then(() => {
+      const params = new URLSearchParams(location.search)
+      if (params.get('settings') === '1') {
+        params.delete('settings')
+        const qs = params.toString()
+        history.replaceState(null, '', location.pathname + (qs ? `?${qs}` : '') + location.hash)
+        openSettings('general')
+      } else {
+        ensureApiKey()
+      }
+    })
   }, [])
 
   return (

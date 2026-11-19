@@ -3,20 +3,17 @@ import { useRef, useState, type ReactNode } from 'react'
 import {
   IconDarkOutline16,
   IconDataOutline16,
-  IconDownloadOutline16,
   IconFollowsystemOutline16,
   IconLightOutline16,
   IconSettingsOutline16,
   IconUploadOutline14,
 } from '../base/icons.js'
 import {
-  BackupError,
   clearHistory,
-  exportHistory,
   importHistory,
 } from '../../services/chat/backup.js'
 import { useIsMobile } from '../../app/viewport.js'
-import { disconnectServer, pairServer, useChatStore } from '../../services/chat/store.js'
+import { disconnectServer, loginServer, useChatStore } from '../../services/chat/store.js'
 import { regionCodes, getRegionName, provinces } from '../../services/location.js'
 import {
   isChineseBrowser,
@@ -121,17 +118,17 @@ const SettingsContent = () => {
           ) : (
             <>
               <SessionsvrSetting />
-              <ImportHistory historyImport={historyImport} disabled={historyBusy || !HISTORY_TRANSFER_READY} />
-              <ExportHistory disabled={historyBusy || !HISTORY_TRANSFER_READY} />
+              <ImportHistory historyImport={historyImport} disabled={historyBusy || !IMPORT_READY} />
               <SettingCell
                 label={t('deleteAllSessions')}
-                status={HISTORY_TRANSFER_READY ? null : { key: 'historyNotImplemented' }}
+                description={t('deleteAllSessionsDescription')}
+                status={DELETE_READY ? null : { key: 'historyNotImplemented' }}
                 action={
                   <Button
                     variant="dangerOutlined"
                     size="m"
                     className={styles.cellButton}
-                    disabled={historyBusy || !HISTORY_TRANSFER_READY}
+                    disabled={historyBusy || !DELETE_READY}
                     onClick={historyDelete.open}
                   >
                     {t('delete')}
@@ -197,9 +194,19 @@ const useHistoryDelete = () => {
     deleting.current = true
     setBusy(true)
     try {
-      await clearHistory()
+      const result = await clearHistory()
       setOpened(false)
-      showToast({ key: 'historyDeleted' })
+      if (result.failed > 0) {
+        showToast({
+          key: 'historyDeletePartial',
+          params: result,
+          type: 'error',
+        })
+      } else if (result.deleted === 0) {
+        showToast({ key: 'historyDeleteNone' })
+      } else {
+        showToast({ key: 'historyDeleted', params: result })
+      }
     } catch {
       showToast({ key: 'historyDeleteFailed', type: 'error' })
     } finally {
@@ -412,17 +419,9 @@ const ThemeSetting = () => {
 /** `reason` 为失败原因的文案 key，展示时按当前语言翻译后填入 `message` 参数。 */
 type Status = (TranslationMessage & { error?: boolean; reason?: TranslationKey }) | null
 
-/** 导出失败附带原因：预期的错误用对应文案作原因，其他错误用错误信息。 */
-const errorStatus = (key: TranslationKey, error: unknown): Status => ({
-  key,
-  ...(error instanceof BackupError
-    ? { reason: error.key }
-    : { params: { message: error instanceof Error ? error.message : String(error) } }),
-  error: true,
-})
-
-/** chatsvr 还没有提供导入/导出/清空 API，先禁用入口，避免看起来成功但什么都没发生。 */
-const HISTORY_TRANSFER_READY = false
+/** chatsvr 的 DeepSeek ZIP 导入/删除尚未接入；先禁用入口。 */
+const IMPORT_READY = true
+const DELETE_READY = true
 
 const SettingCell = ({
   label,
@@ -471,8 +470,21 @@ const useHistoryImport = () => {
     setBusy(true)
     setStatus(null)
     try {
-      const count = await importHistory(file)
-      setStatus({ key: count === 1 ? 'historyImportedOne' : 'historyImported', params: { count } })
+      const summary = await importHistory(file)
+      if (summary.imported === 0) {
+        setStatus({ key: 'historyImportFailed', error: true })
+      } else if (summary.failed > 0 || summary.warnings > 0) {
+        setStatus({
+          key: 'historyImportPartial',
+          params: { imported: summary.imported, failed: summary.failed, warnings: summary.warnings },
+          error: summary.failed > 0,
+        })
+      } else {
+        setStatus({
+          key: summary.imported === 1 ? 'historyImportedOne' : 'historyImported',
+          params: { count: summary.imported },
+        })
+      }
     } catch {
       setStatus({ key: 'historyImportFailed', error: true })
     } finally {
@@ -484,28 +496,36 @@ const useHistoryImport = () => {
   return { file, busy, status, select: setFile, cancel: () => setFile(null), confirm }
 }
 
-/** sessionsvr 连接：官方服务器暂未开放，自建服务器填地址 + 配对码。 */
+/** sessionsvr 连接：官方服务器暂未开放，自建服务器填地址 + 密码。 */
 const SessionsvrSetting = () => {
   const t = useTranslate()
   const server = useChatStore((state) => state.server)
   const [mode, setMode] = useState<'official' | 'self'>(server.paired ? 'self' : 'official')
   const [url, setUrl] = useState(server.url)
-  const [code, setCode] = useState('')
+  const [password, setPassword] = useState('')
+  const [emptyAcknowledged, setEmptyAcknowledged] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
   const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
   const connect = async () => {
-    if (!url.trim() || !code.trim()) {
-      setError(t('syncMissing'))
+    if (!url.trim()) {
+      setError(t('syncMissingUrl'))
+      return
+    }
+    if (!password.trim() && !emptyAcknowledged) {
+      setError(t('syncEmptyPasswordRequired'))
+      return
+    }
+    if (!password.trim() && !window.confirm(t('syncEmptyPasswordConfirm'))) {
       return
     }
     setBusy(true)
     setError('')
     try {
-      await pairServer(url.trim(), code.trim())
-      setCode('')
+      await loginServer(url.trim(), password)
+      setPassword('')
     } catch (e) {
       setError(message(e))
     } finally {
@@ -572,13 +592,23 @@ const SessionsvrSetting = () => {
                 autoComplete="off"
               />
             </label>
+            {!password.trim() ? (
+              <label className={styles.radio}>
+                <input
+                  type="checkbox"
+                  checked={emptyAcknowledged}
+                  onChange={(event) => setEmptyAcknowledged(event.target.checked)}
+                />
+                <span>{t('syncEmptyPasswordCheck')}</span>
+              </label>
+            ) : null}
             <label className={styles.serverInput}>
               <input
-                value={code}
-                onChange={(event) => setCode(event.target.value)}
-                placeholder={t('syncCodePlaceholder')}
-                inputMode="numeric"
-                autoComplete="one-time-code"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder={t('syncPasswordPlaceholder')}
+                type="password"
+                autoComplete="current-password"
               />
             </label>
             <div className={styles.serverActions}>
@@ -587,7 +617,7 @@ const SessionsvrSetting = () => {
               </Button>
             </div>
           </div>
-          <div className={styles.serverHint}>{t('syncAddressHint')}</div>
+          <div className={styles.serverHint}>{t('syncPasswordHint')}</div>
         </>
       )}
       {error ? <div className={styles.error}>{error}</div> : null}
@@ -610,7 +640,7 @@ const ImportHistory = ({
     <SettingCell
       label={t('historyImport')}
       description={t('historyImportDescription')}
-      status={HISTORY_TRANSFER_READY ? historyImport.status : { key: 'historyNotImplemented' }}
+      status={IMPORT_READY ? historyImport.status : { key: 'historyNotImplemented' }}
       action={
         <>
           <Button
@@ -637,52 +667,6 @@ const ImportHistory = ({
             }}
           />
         </>
-      }
-    />
-  )
-}
-
-/** 将全部会话及图片导出为 ZIP 文件并下载 */
-const ExportHistory = ({ disabled }: { disabled: boolean }) => {
-  const t = useTranslate()
-  const empty = useChatStore((state) => state.sessions.length === 0)
-  const [busy, setBusy] = useState(false)
-  const [status, setStatus] = useState<Status>(null)
-
-  const onExport = async () => {
-    setBusy(true)
-    setStatus(null)
-    try {
-      const { name, blob } = await exportHistory()
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = name
-      link.click()
-      setTimeout(() => URL.revokeObjectURL(url), 10_000)
-    } catch (error) {
-      setStatus(errorStatus('historyExportFailed', error))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <SettingCell
-      label={t('exportAllLabel')}
-      description={t('historyExportDescription')}
-      status={HISTORY_TRANSFER_READY ? status : { key: 'historyNotImplemented' }}
-      action={
-        <Button
-          variant="outlined"
-          size="m"
-          className={styles.cellButton}
-          disabled={disabled || busy || empty}
-          onClick={() => void onExport()}
-        >
-          <IconDownloadOutline16 />
-          {t('historyExportAction')}
-        </Button>
       }
     />
   )

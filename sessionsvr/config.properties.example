@@ -1,0 +1,6 @@
+# sessionsvr configuration. Copy to config.properties next to the sessionsvr
+# binary (same directory). The file is required.
+#
+# PASSWORD may be empty. Empty means no authentication: anyone who can reach
+# this server can read and modify all chats. Use only on a trusted machine/LAN.
+PASSWORD=

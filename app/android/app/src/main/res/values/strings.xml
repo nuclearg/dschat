@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DSChat</string>
+    <string name="loading">Starting the local engine…</string>
+    <string name="retry">Retry</string>
+    <string name="error_engine">The local engine could not start: %1$s</string>
+    <string name="error_timeout">The local engine did not start in time.</string>
+    <string name="error_page">Could not load the app. Check the engine and try again.</string>
+    <string name="channel_name">DSChat engine</string>
+    <string name="channel_description">Keeps the local DSChat engine running while the app is in the background.</string>
+    <string name="notification_title">DSChat</string>
+    <string name="notification_text">Local engine is running</string>
+</resources>

@@ -132,7 +132,7 @@ const enqueueUpload = (
       }
       try {
         const body = file instanceof File ? file : new File([file], name, { type: file.type })
-        resolve((await apiUpload(body, name, signal)).id)
+        resolve((await apiUpload(body, name, undefined, signal)).id)
       } catch (error) {
         reject(error)
       }
