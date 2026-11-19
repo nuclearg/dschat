@@ -1,0 +1,77 @@
+.status {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 4px;
+}
+
+.status > svg {
+  display: block;
+  opacity: 0.68;
+}
+
+.fragment {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: flex;
+  width: 8px;
+  height: 8px;
+  align-items: center;
+  justify-content: center;
+  color: var(--dsw-alias-state-error-primary);
+  opacity: 1;
+}
+
+.blocked {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: flex;
+  width: 8px;
+  height: 8px;
+  color: var(--dsw-static-amber-500);
+  opacity: 1;
+}
+
+.clock {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: flex;
+  width: 8px;
+  height: 8px;
+  color: currentColor;
+  opacity: 0.78;
+}
+
+.spinner {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  box-sizing: border-box;
+  width: 7px;
+  height: 7px;
+  border: 1.2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  opacity: 0.82;
+  animation: session-cloud-spin 0.9s linear infinite;
+}
+
+@keyframes session-cloud-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+    border-right-color: currentColor;
+  }
+}

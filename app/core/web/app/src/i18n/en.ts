@@ -160,6 +160,15 @@ export const en = {
   historyExportDescription:
     'Includes all chat history and locally stored images. Other attachments retain file details only. Your API Key is not included.',
   exportAllDownload: 'Download',
+  sessionCloudOwnedSynced: 'Owned by this device, synced',
+  sessionCloudRemote: 'Owned by another device, read-only',
+  sessionCloudLocal: 'Only on this device, not synced yet',
+  sessionCloudPending: 'Waiting to sync to sessionsvr',
+  sessionCloudBlocked: 'Sync paused. Check your network or membership, or reconnect to sessionsvr.',
+  sessionCloudUploading: 'Syncing to sessionsvr',
+  sessionCloudDownloading: 'Syncing from sessionsvr',
+  sessionCloudFragment: 'A local reply could not be synced',
+  sessionCloudFragmentRemote: 'A local reply could not be synced; owned by another device',
   deleteAllSessions: 'Delete all local chats',
   deleteAllSessionsDescription:
     'Only chats owned by this device. Read-only chats owned by other devices are kept; synced chats are also deleted from sessionsvr.',

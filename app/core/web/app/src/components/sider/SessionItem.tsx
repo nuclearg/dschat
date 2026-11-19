@@ -7,15 +7,20 @@ import type { SessionSummary } from '../../services/chat/types.js'
 import { IconButton } from '../base/IconButton.js'
 import { Menu } from '../base/Menu.js'
 import { closeMobileSider } from './mobileSiderState.js'
+import { SessionCloud } from './SessionCloud.js'
 import styles from './SessionItem.module.css'
 
 export const SessionItem = memo(function SessionItem({
   session,
   active,
+  paired,
+  localDeviceId,
   onDelete,
 }: {
   session: SessionSummary
   active: boolean
+  paired: boolean
+  localDeviceId: string
   onDelete: () => void
 }) {
   const t = useTranslate()
@@ -56,6 +61,7 @@ export const SessionItem = memo(function SessionItem({
       }}
     >
       <div className={styles.title}>{displayTitle}</div>
+      <SessionCloud session={session} paired={paired} localDeviceId={localDeviceId} />
       <div className={styles.action} onClick={(event) => event.stopPropagation()}>
         <Menu
           options={[

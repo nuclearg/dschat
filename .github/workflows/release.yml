@@ -1,0 +1,166 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/core/web/app/pnpm-lock.yaml
+      - name: Build web UI
+        working-directory: app/core/web/app
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: app/core/web/app/dist
+          retention-days: 1
+
+  sessionsvr:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: darwin, goarch: arm64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: linux, goarch: amd64 }
+          - { goos: windows, goarch: amd64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="sessionsvr-${{ matrix.goos }}-${{ matrix.goarch }}"
+          exe=""
+          if [[ "${{ matrix.goos }}" == "windows" ]]; then exe=".exe"; fi
+          mkdir -p "$name"
+          CGO_ENABLED=0 GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" \
+            go build -trimpath -ldflags="-s -w" -o "$name/sessionsvr$exe" ./sessionsvr
+          cp sessionsvr/config.properties.example "$name/config.properties.example"
+          if [[ "${{ matrix.goos }}" == "windows" ]]; then
+            zip -qr "$name.zip" "$name"
+            rm -rf "$name"
+          else
+            tar -czf "$name.tar.gz" "$name"
+            rm -rf "$name"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sessionsvr-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: sessionsvr-${{ matrix.goos }}-${{ matrix.goarch }}.*
+          retention-days: 1
+
+  macos-app:
+    needs: web
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Replace web dist
+        run: rm -rf app/core/web/dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: app/core/web/dist
+      - name: Build unsigned arm64 app
+        run: |
+          set -euo pipefail
+          MACOS_ARCH=arm64 ./scripts/build-macos-app.sh
+          mkdir -p dist/release
+          ditto -c -k --norsrc --noextattr --keepParent dist/Dschat.app dist/release/dschat-macos-arm64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dschat-macos-arm64
+          path: dist/release/dschat-macos-arm64.zip
+          retention-days: 1
+
+  windows-app:
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Replace web dist
+        run: rm -rf app/core/web/dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: app/core/web/dist
+      - name: Install mingw
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64 zip
+      - name: Build unsigned amd64 app
+        run: |
+          set -euo pipefail
+          ./scripts/build-windows-app.sh
+          mkdir -p dist/release
+          (cd dist && zip -qr release/dschat-windows-amd64.zip dschat-windows-amd64.exe)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dschat-windows-amd64
+          path: dist/release/dschat-windows-amd64.zip
+          retention-days: 1
+
+  release:
+    needs: [web, sessionsvr, macos-app, windows-app]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dschat-*
+          path: release
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sessionsvr-*
+          path: release
+          merge-multiple: true
+      - name: Checksums
+        working-directory: release
+        run: sha256sum * > SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+          body: |
+            Unsigned builds.
+
+            - macOS app: arm64 only. First launch may require right-click → Open.
+            - Windows app: amd64, unsigned; SmartScreen may warn.
+            - sessionsvr: darwin-arm64, linux-arm64, linux-amd64, windows-amd64.
+            - `sessionsvr` packages include `config.properties.example`; copy it to `config.properties` next to the binary.

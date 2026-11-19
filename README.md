@@ -13,6 +13,8 @@
 - sessionsvr：密码登录、access/refresh token、会话/回合同步、会话级 owner、跨设备 claim、只读、SSE 通知。
 - 会话删除：chatsvr 物理删除（含本地附件文件），sessionsvr 软删除并广播；其他设备立即删除，离线设备重连时对账删除；7 天后 sessionsvr 硬删并清理 blob。
 - 删除所有本地对话：只删除本设备 owner 的会话，其他设备的只读会话保留；已同步的会话同时从 sessionsvr 删除。
+- 侧栏会话状态：实心云=本设备拥有，空心云=其他设备拥有；时钟角标=仅本地/等待同步，旋转角标=正在传输，叉角标=存在本地碎片，琥珀色感叹号=同步被阻塞（任何上传/下载失败：网络、密码/会员、并发限制等）；未连接时不绘制。
+- 注销设备只隐藏图标并断开同步，不丢会话；切换 sessionsvr 时旧服务器的已同步会话转为本地会话（时钟角标），不会被新服务器的列表对账删除；重连同一服务器保持原同步状态。
 - 两台设备抢同一个会话：旧设备收到 `owner_changed` 后变只读，新设备接管并把遗留 open turn 用 `aborted` 闭合。
 
 ## 前端
@@ -35,6 +37,24 @@ make android          # dist/android/dschat-debug.apk + chatsvr.aar
 `make build` 产物：`bin/dschat`（macOS，默认带菜单栏）、`bin/sessionsvr`。
 `make shells` 产物：`dist/Dschat.app`（arm64/x86_64 universal）、`dist/dschat-windows-amd64.exe`。
 `make android` 产物：`dist/android/dschat-debug.apk`、`dist/android/chatsvr.aar`（需要 Android SDK + NDK 27.2 + gomobile）。
+
+发布包：
+
+```sh
+./scripts/build-release.sh
+```
+
+产物在 `dist/release/`：
+
+- `dschat-macos-arm64.zip`（未签名）
+- `dschat-windows-amd64.zip`（未签名）
+- `sessionsvr-darwin-arm64.tar.gz`
+- `sessionsvr-linux-arm64.tar.gz`
+- `sessionsvr-linux-amd64.tar.gz`
+- `sessionsvr-windows-amd64.zip`
+- `SHA256SUMS`
+
+GitHub Actions 在 push main 时构建中间产物，push `v*` tag 时创建 GitHub Release。`sessionsvr` 包内带 `config.properties.example`，复制为同目录 `config.properties` 后启动。
 
 ## 运行
 

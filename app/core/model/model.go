@@ -23,6 +23,8 @@ type Session struct {
 	UpdatedAt int64  `json:"updatedAt"`
 	// SyncState is local-only bookkeeping: local | synced | detached.
 	SyncState string `json:"syncState,omitempty"`
+	// ServerID is the sessionsvr identity this session is synced to. Local only.
+	ServerID string `json:"-"`
 }
 
 type Attachment struct {

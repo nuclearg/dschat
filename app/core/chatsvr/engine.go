@@ -23,8 +23,10 @@ type SendRequest struct {
 
 type SessionView struct {
 	model.Session
-	ReadOnly    bool `json:"readOnly"`
-	HasOpenTurn bool `json:"hasOpenTurn"`
+	ReadOnly      bool   `json:"readOnly"`
+	HasOpenTurn   bool   `json:"hasOpenTurn"`
+	TransferState string `json:"transferState"`
+	HasFragment   bool   `json:"hasFragment"`
 }
 
 type SessionDetail struct {
@@ -52,9 +54,6 @@ func (a *App) CreateSession(title string) (*model.Session, error) {
 		CreatedAt: now,
 		UpdatedAt: now,
 		SyncState: SyncLocal,
-	}
-	if a.Sync() != nil {
-		sess.SyncState = SyncSynced
 	}
 	if err := a.store.CreateSession(sess); err != nil {
 		return nil, err
@@ -119,10 +118,20 @@ func (a *App) Bootstrap() (map[string]any, error) {
 				break
 			}
 		}
+		hasFragment := false
+		if outputs, err := a.store.LocalOutputs(s.ID); err == nil {
+			hasFragment = len(outputs) > 0
+		}
+		pending := false
+		if s.SyncState == SyncSynced {
+			pending, _ = a.store.HasPending(s.ID)
+		}
 		views = append(views, SessionView{
-			Session:     s,
-			ReadOnly:    s.SyncState == SyncSynced && s.OwnerID != a.deviceID,
-			HasOpenTurn: open,
+			Session:       s,
+			ReadOnly:      s.SyncState == SyncSynced && s.OwnerID != a.deviceID,
+			HasOpenTurn:   open,
+			TransferState: a.transferState(s, hasFragment, pending),
+			HasFragment:   hasFragment,
 		})
 	}
 	set := a.Settings()
@@ -145,6 +154,32 @@ func (a *App) Bootstrap() (map[string]any, error) {
 		"server":   server,
 		"sessions": views,
 	}, nil
+}
+
+func (a *App) transferState(s model.Session, hasFragment, pending bool) string {
+	if hasFragment {
+		return "fragment"
+	}
+	if a.syncBlocked() != "" {
+		return "blocked"
+	}
+	a.mu.Lock()
+	uploading := a.sending[s.ID]
+	a.mu.Unlock()
+	if uploading {
+		return "uploading"
+	}
+	if s.SyncState != SyncSynced {
+		return "local"
+	}
+	// A session synced to another sessionsvr must never look synced here.
+	if s.ServerID != "" && s.ServerID != a.currentServerID() {
+		return "local"
+	}
+	if pending {
+		return "pending"
+	}
+	return "synced"
 }
 
 func (a *App) Send(sessionID string, req SendRequest) (*model.Turn, error) {
@@ -204,7 +239,14 @@ func (a *App) Send(sessionID string, req SendRequest) (*model.Turn, error) {
 	if strings.TrimSpace(q.Text) == "" && len(q.Attachments) == 0 {
 		return nil, apierr.New(400, "EMPTY", "question is empty")
 	}
-	if sess.SyncState == SyncSynced {
+	// New local sessions can start their remote lifecycle on first send. A
+	// detached local session with history stays local; uploading an existing
+	// tree is a separate operation, not an implicit side effect of one turn.
+	syncActive := sess.SyncState == SyncSynced
+	if !syncActive && a.Sync() != nil && len(turns) == 0 {
+		syncActive = true
+	}
+	if syncActive {
 		// 先确保 sessionsvr 有 blob，再 append turn；否则别的设备会拿到元数据却没有文件。
 		upCtx, upCancel := context.WithTimeout(a.baseCtx(), 60*time.Second)
 		err := a.ensureRemoteAttachments(upCtx, sessionID, q.Attachments)
@@ -225,7 +267,7 @@ func (a *App) Send(sessionID string, req SendRequest) (*model.Turn, error) {
 	}
 	_ = a.store.TouchSession(sessionID)
 
-	if sess.SyncState == SyncSynced {
+	if syncActive {
 		ctx, cancel := context.WithTimeout(a.baseCtx(), 30*time.Second)
 		err := a.ensureRemoteSession(ctx, *sess)
 		if err == nil {
@@ -234,6 +276,14 @@ func (a *App) Send(sessionID string, req SendRequest) (*model.Turn, error) {
 			}
 		}
 		cancel()
+		if err == nil && sess.SyncState != SyncSynced {
+			if applyErr := a.store.SetSessionSynced(sessionID, a.currentServerID()); applyErr == nil {
+				a.emit(map[string]any{"type": "session_updated", "sessionId": sessionID})
+			}
+		}
+		if err == nil {
+			a.clearSyncBlocked()
+		}
 		if err != nil {
 			_ = a.store.DeleteTurn(t.ID)
 			if hadPrev {
@@ -406,6 +456,7 @@ func (a *App) Claim(sessionID string, force bool) error {
 	if err != nil {
 		return err
 	}
+	a.clearSyncBlocked()
 	if err := a.store.SetSessionOwner(sessionID, remote.OwnerID); err != nil {
 		return err
 	}
@@ -429,6 +480,19 @@ func (a *App) Claim(sessionID string, force bool) error {
 	}
 	a.emit(map[string]any{"type": "session_updated", "sessionId": sessionID})
 	return nil
+}
+
+func (a *App) cancelActiveTurns() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, at := range a.active {
+		at.cancel()
+	}
+}
+
+func (a *App) currentServerID() string {
+	v, _ := a.store.KV("server_id")
+	return v
 }
 
 func (a *App) SyncPending(sessionID string) error {
@@ -465,6 +529,7 @@ func (a *App) SyncPending(sessionID string) error {
 		}
 		_ = a.store.SetAnswerSync(t.ID, SyncSynced)
 	}
+	a.clearSyncBlocked()
 	a.emit(map[string]any{"type": "session_updated", "sessionId": sessionID})
 	return nil
 }
@@ -484,6 +549,7 @@ func (a *App) Rename(sessionID, title string) error {
 			if err := s.Rename(ctx, sessionID, title); err != nil {
 				return err
 			}
+			a.clearSyncBlocked()
 		}
 	}
 	if err := a.store.SetSessionTitle(sessionID, title); err != nil {
@@ -543,6 +609,7 @@ func (a *App) Delete(sessionID string) error {
 			}
 			return err
 		}
+		a.clearSyncBlocked()
 	}
 	return a.deleteLocalSession(sessionID)
 }
@@ -941,11 +1008,14 @@ func (a *App) pullSession(ctx context.Context, sessionID string) error {
 	local, err := a.store.Session(sessionID)
 	if err != nil {
 		now := model.NowMS()
-		local = &model.Session{ID: sessionID, OwnerID: remote.OwnerID, CreatedAt: now, UpdatedAt: now, SyncState: SyncSynced}
+		local = &model.Session{ID: sessionID, OwnerID: remote.OwnerID, CreatedAt: now, UpdatedAt: now, SyncState: SyncSynced, ServerID: a.currentServerID()}
 		if err := a.store.CreateSession(*local); err != nil {
 			return err
 		}
 	}
+	// A detached/local session is never promoted to synced just because the
+	// server happens to have a session with the same id. Only the remote-create
+	// path above and an explicit successful append do that.
 	if remote.OwnerID != "" && remote.OwnerID != local.OwnerID {
 		_ = a.store.SetSessionOwner(sessionID, remote.OwnerID)
 	}
@@ -960,6 +1030,7 @@ func (a *App) pullSession(ctx context.Context, sessionID string) error {
 		}
 		for _, att := range t.Q.Attachments {
 			if _, err := a.ensureLocalAttachment(ctx, att, sessionID); err != nil {
+				a.noteSyncError(err)
 				log.Printf("pull attachment %s: %v", att.ID, err)
 			}
 		}
@@ -982,20 +1053,28 @@ func (a *App) syncAll(ctx context.Context) {
 	}
 	list, err := s.ListSessions(ctx)
 	if err != nil {
+		a.noteSyncError(err)
 		log.Printf("sync list: %v", err)
 		return
+	}
+	if reason := a.syncBlocked(); reason == "network" || reason == "server" || reason == "sync" {
+		a.clearSyncBlocked()
 	}
 	remote := make(map[string]bool, len(list))
 	for _, rs := range list {
 		remote[rs.ID] = true
 	}
 	for _, rs := range list {
-		_ = a.pullSession(ctx, rs.ID)
+		if err := a.pullSession(ctx, rs.ID); err != nil {
+			a.noteSyncError(err)
+		}
 	}
 	// A soft-deleted session disappears from the remote list. Reconcile it
 	// locally so devices that were offline during the delete also remove it.
+	serverID := a.currentServerID()
 	for _, sess := range local {
-		if sess.SyncState == SyncSynced && !remote[sess.ID] {
+		// Only sessions belonging to this sessionsvr may be reconciled away.
+		if sess.SyncState == SyncSynced && sess.ServerID == serverID && serverID != "" && !remote[sess.ID] {
 			if err := a.deleteLocalSession(sess.ID); err != nil {
 				log.Printf("sync delete %s: %v", sess.ID, err)
 			}

@@ -61,6 +61,8 @@ type Sync struct {
 	// OnTokens persists rotated credentials; called with access/refresh and
 	// access expiry in milliseconds.
 	OnTokens func(access, refresh string, accessExpiresAt int64)
+	// OnError receives sync/stream errors so the app can surface auth blocks.
+	OnError func(error)
 
 	authMu sync.Mutex
 	mu     sync.Mutex
@@ -501,6 +503,9 @@ func (s *Sync) Run(ctx context.Context, onEvent func(RemoteEvent), onReconnect f
 			return
 		}
 		if err != nil {
+			if s.OnError != nil {
+				s.OnError(err)
+			}
 			log.Printf("sessionsvr stream: %v", err)
 		}
 		select {

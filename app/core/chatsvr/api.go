@@ -208,6 +208,7 @@ func (a *App) handleSend(w http.ResponseWriter, r *http.Request) {
 	}
 	t, err := a.Send(r.PathValue("id"), req)
 	if err != nil {
+		a.noteSyncError(err)
 		apierr.Write(w, err)
 		return
 	}
@@ -231,6 +232,7 @@ func (a *App) handleClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.Claim(r.PathValue("id"), req.Force); err != nil {
+		a.noteSyncError(err)
 		apierr.Write(w, err)
 		return
 	}
@@ -253,6 +255,7 @@ func (a *App) handleImportSession(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleSync(w http.ResponseWriter, r *http.Request) {
 	if err := a.SyncPending(r.PathValue("id")); err != nil {
+		a.noteSyncError(err)
 		apierr.Write(w, err)
 		return
 	}
@@ -283,6 +286,7 @@ func (a *App) handleRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.Rename(r.PathValue("id"), req.Title); err != nil {
+		a.noteSyncError(err)
 		apierr.Write(w, err)
 		return
 	}
@@ -300,6 +304,7 @@ func (a *App) handleDeleteAll(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDelete(w http.ResponseWriter, r *http.Request) {
 	if err := a.Delete(r.PathValue("id")); err != nil {
+		a.noteSyncError(err)
 		apierr.Write(w, err)
 		return
 	}
@@ -512,16 +517,49 @@ func (a *App) handleServerLogin(w http.ResponseWriter, r *http.Request) {
 		apierr.Write(w, apierr.New(400, "LOGIN_FAILED", message))
 		return
 	}
+	a.cancelActiveTurns()
 	if old := a.Sync(); old != nil {
 		old.Close()
 	}
 	base := strings.TrimRight(u.String(), "/")
+	oldServerID, _ := a.store.KV("server_id")
+	oldURL, _ := a.store.KV("last_server_url")
+	if oldURL == "" {
+		oldURL, _ = a.store.KV("server_url")
+	}
+	newServerID := res.ServerID
+	if newServerID == "" {
+		newServerID = base
+	}
+	serverChanged := false
+	if oldServerID != "" {
+		serverChanged = oldServerID != newServerID
+	} else if oldURL != "" {
+		serverChanged = strings.TrimRight(oldURL, "/") != base
+	}
+	if serverChanged {
+		// Never let the new sessionsvr's list reconcile away sessions that
+		// belong to the previous server. Keep them as local conversations.
+		detachedOwner := res.DeviceID
+		if detachedOwner == "" {
+			detachedOwner = a.deviceID
+		}
+		if err := a.store.DetachSyncedSessions(detachedOwner); err != nil {
+			apierr.Write(w, err)
+			return
+		}
+		a.emit(map[string]any{"type": "sessions_changed"})
+	}
 	_ = a.store.SetKV("server_url", base)
+	_ = a.store.SetKV("last_server_url", base)
+	_ = a.store.SetKV("server_id", newServerID)
 	_ = a.store.SetKV("server_device_id", res.DeviceID)
 	a.saveServerTokens(res.AccessToken, res.RefreshToken, res.AccessExpiresAt)
 	_ = a.store.SetKV("server_token", "") // remove the pairing-era token
+	a.clearSyncBlocked()
 	s := NewSync(base, res.AccessToken, res.RefreshToken, res.AccessExpiresAt, res.DeviceID, a.currentLanguage())
 	s.OnTokens = a.saveServerTokens
+	s.OnError = a.noteSyncError
 	a.setSync(s)
 	go s.Run(a.baseCtx(), a.onRemoteEvent, func() { go a.syncAll(a.baseCtx()) })
 	go a.syncAll(a.baseCtx())
@@ -529,10 +567,12 @@ func (a *App) handleServerLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDisconnect(w http.ResponseWriter, _ *http.Request) {
+	a.cancelActiveTurns()
 	if s := a.Sync(); s != nil {
 		s.Close()
 	}
 	a.setSync(nil)
+	a.clearSyncBlocked()
 	_ = a.store.SetKV("server_url", "")
 	_ = a.store.SetKV("server_token", "")
 	_ = a.store.SetKV("server_access_token", "")

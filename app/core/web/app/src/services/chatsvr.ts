@@ -94,6 +94,8 @@ export type ApiTurn = {
   answer?: ApiAnswer
 }
 
+export type TransferState = 'synced' | 'local' | 'pending' | 'uploading' | 'blocked' | 'fragment'
+
 export type ApiSession = {
   id: string
   title: string
@@ -101,6 +103,8 @@ export type ApiSession = {
   createdAt: number
   updatedAt: number
   syncState?: string
+  transferState?: TransferState
+  hasFragment?: boolean
 }
 
 export type ApiSessionView = ApiSession & {
@@ -250,6 +254,10 @@ export const toSummary = (s: ApiSession): SessionSummary => ({
   title: s.title,
   createdAt: s.createdAt,
   updatedAt: s.updatedAt,
+  ownerDeviceId: s.ownerDeviceId,
+  syncState: s.syncState,
+  transferState: s.transferState,
+  hasFragment: s.hasFragment,
 })
 
 /** Turn tree -> the demo's message tree. One turn becomes a Q/A pair. */

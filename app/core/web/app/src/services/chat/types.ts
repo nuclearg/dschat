@@ -121,7 +121,12 @@ export type Session = {
 }
 
 /** 会话列表元数据；消息只在打开会话时加载。 */
-export type SessionSummary = Pick<Session, 'id' | 'title' | 'createdAt' | 'updatedAt'>
+export type SessionSummary = Pick<Session, 'id' | 'title' | 'createdAt' | 'updatedAt'> & {
+  ownerDeviceId?: string
+  syncState?: string
+  transferState?: 'synced' | 'local' | 'pending' | 'uploading' | 'blocked' | 'fragment'
+  hasFragment?: boolean
+}
 
 /** 显式提取字段，避免将完整会话的消息带进列表。 */
 export const toSessionSummary = (session: SessionSummary): SessionSummary => ({
@@ -129,4 +134,8 @@ export const toSessionSummary = (session: SessionSummary): SessionSummary => ({
   title: session.title,
   createdAt: session.createdAt,
   updatedAt: session.updatedAt,
+  ...(session.ownerDeviceId ? { ownerDeviceId: session.ownerDeviceId } : {}),
+  ...(session.syncState ? { syncState: session.syncState } : {}),
+  ...(session.transferState ? { transferState: session.transferState } : {}),
+  ...(session.hasFragment ? { hasFragment: true } : {}),
 })

@@ -44,6 +44,7 @@ create table if not exists sessions (
   title text not null default '',
   owner_device_id text not null,
   sync_state text not null default 'local',
+  server_id text not null default '',
   created_at integer not null,
   updated_at integer not null
 );
@@ -101,6 +102,7 @@ create table if not exists drafts (
 	}
 	// 旧库补列；已存在时忽略错误。
 	_, _ = db.Exec(`alter table attachments add column file_uploaded_at integer not null default 0`)
+	_, _ = db.Exec(`alter table sessions add column server_id text not null default ''`)
 	return nil
 }
 
@@ -119,8 +121,8 @@ func (s *Store) SetKV(k, v string) error {
 }
 
 func (s *Store) CreateSession(x model.Session) error {
-	_, err := s.db.Exec(`insert into sessions(id,title,owner_device_id,sync_state,created_at,updated_at) values(?,?,?,?,?,?)`,
-		x.ID, x.Title, x.OwnerID, x.SyncState, x.CreatedAt, x.UpdatedAt)
+	_, err := s.db.Exec(`insert into sessions(id,title,owner_device_id,sync_state,server_id,created_at,updated_at) values(?,?,?,?,?,?,?)`,
+		x.ID, x.Title, x.OwnerID, x.SyncState, x.ServerID, x.CreatedAt, x.UpdatedAt)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE") {
 		return apierr.New(409, "SESSION_EXISTS", "session already exists")
 	}
@@ -129,8 +131,8 @@ func (s *Store) CreateSession(x model.Session) error {
 
 func (s *Store) Session(id string) (*model.Session, error) {
 	var x model.Session
-	err := s.db.QueryRow(`select id,title,owner_device_id,sync_state,created_at,updated_at from sessions where id=?`, id).
-		Scan(&x.ID, &x.Title, &x.OwnerID, &x.SyncState, &x.CreatedAt, &x.UpdatedAt)
+	err := s.db.QueryRow(`select id,title,owner_device_id,sync_state,server_id,created_at,updated_at from sessions where id=?`, id).
+		Scan(&x.ID, &x.Title, &x.OwnerID, &x.SyncState, &x.ServerID, &x.CreatedAt, &x.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, apierr.New(404, "SESSION_NOT_FOUND", "session not found")
 	}
@@ -141,7 +143,7 @@ func (s *Store) Session(id string) (*model.Session, error) {
 }
 
 func (s *Store) Sessions() ([]model.Session, error) {
-	rows, err := s.db.Query(`select id,title,owner_device_id,sync_state,created_at,updated_at from sessions order by updated_at desc`)
+	rows, err := s.db.Query(`select id,title,owner_device_id,sync_state,server_id,created_at,updated_at from sessions order by updated_at desc`)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +151,7 @@ func (s *Store) Sessions() ([]model.Session, error) {
 	out := []model.Session{}
 	for rows.Next() {
 		var x model.Session
-		if err := rows.Scan(&x.ID, &x.Title, &x.OwnerID, &x.SyncState, &x.CreatedAt, &x.UpdatedAt); err != nil {
+		if err := rows.Scan(&x.ID, &x.Title, &x.OwnerID, &x.SyncState, &x.ServerID, &x.CreatedAt, &x.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, x)
@@ -179,6 +181,20 @@ func (s *Store) SetSessionOwner(id, owner string) error {
 
 func (s *Store) SetSessionSyncState(id, state string) error {
 	_, err := s.db.Exec(`update sessions set sync_state=? where id=?`, state, id)
+	return err
+}
+
+// SetSessionSynced marks a session as belonging to a specific sessionsvr.
+func (s *Store) SetSessionSynced(id, serverID string) error {
+	_, err := s.db.Exec(`update sessions set sync_state='synced', server_id=? where id=?`, serverID, id)
+	return err
+}
+
+// DetachSyncedSessions turns all cloud-backed sessions into local sessions.
+// Used when the user switches to a different sessionsvr: the old server's data
+// must never be reconciled against or deleted by the new server's session list.
+func (s *Store) DetachSyncedSessions(owner string) error {
+	_, err := s.db.Exec(`update sessions set sync_state='local', owner_device_id=?, server_id='' where sync_state='synced'`, owner)
 	return err
 }
 
@@ -305,6 +321,14 @@ func (s *Store) PutAnswer(turnID string, a model.Answer, syncState string) error
 	_, err = s.db.Exec(`insert into answers(turn_id,a_json,sync_state,created_at) values(?,?,?,?)
 on conflict(turn_id) do update set a_json=excluded.a_json, sync_state=excluded.sync_state`, turnID, string(aJSON), syncState, a.CreatedAt)
 	return err
+}
+
+func (s *Store) HasPending(sessionID string) (bool, error) {
+	var n int
+	err := s.db.QueryRow(`
+select exists(select 1 from answers a join turns t on t.id=a.turn_id
+  where t.session_id=? and a.sync_state<>'synced')`, sessionID).Scan(&n)
+	return n == 1, err
 }
 
 func (s *Store) AnswerState(turnID string) (string, bool, error) {

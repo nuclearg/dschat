@@ -375,6 +375,21 @@ chatsvr 启动时：
 - `local`（从未上云）会话不会被对账逻辑误删。
 - 设置里的“删除所有本地对话”遍历本地 sessions，只对本设备 owner 的会话调用上述删除；其他设备 owner 的只读会话跳过并计数。
 
+### 7.6 侧栏会话状态角标
+
+- 云本体只表示 ownership：实心 = 当前设备，空心 = 其他设备。
+- 角标表示传输状态：无 = 已同步；时钟 = 仅本地/等待同步；旋转 = 正在传输；叉 = 本地碎片；琥珀色感叹号 = 同步被认证/服务阻塞。
+- `blocked` 是兜底状态：任何上传/下载失败都写 `sync_blocked`（`auth` / `network` / `limit` / `server` / `sync`），所有已连接会话的传输状态变为 `blocked`，图标保留 ownership 云本体并叠加琥珀色感叹号。
+- 本地参数校验失败不算同步失败，不触发 blocked。
+- 网络/服务端错误在下一次列表成功后可清除；认证错误需重新登录；限额错误需一次成功写入或重新连接。
+- 未连接 sessionsvr 时不绘制任何图标。
+- 新建 session 先保持 `local`，第一次成功 append 后才变 `synced`；因此本地新会话会显示时钟，而不是伪装成已同步。
+
+- 每个本地 session 记录 `server_id`；只有属于当前 sessionsvr 的 `synced` 会话参与远端列表对账。
+- 注销设备只清 token/URL，不改变本地会话；图标隐藏。
+- 切换 sessionsvr（serverId 变化或旧版凭据的 URL 变化）时，先把所有 `synced` 会话转为 `local`、owner 改回本机、清空 `server_id`，再拉新服务器；避免新服务器的空列表把旧会话删掉。
+- 重连同一个 sessionsvr 不 detach，保留原相对状态。
+
 ### 7.5 红色残片
 
 只有一种情况产生：turn 已 open、A 已生成或生成中，但本设备失去了 owner。

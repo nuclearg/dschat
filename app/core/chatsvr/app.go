@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -49,6 +50,9 @@ type App struct {
 
 	langMu   sync.RWMutex
 	language string
+
+	blockMu sync.RWMutex
+	blocked string
 
 	ctx context.Context
 
@@ -122,6 +126,7 @@ func New(cfg Config) (*App, error) {
 	if lang, _ := st.KV("ui_language"); lang != "" {
 		a.language = lang
 	}
+	a.blocked, _ = st.KV("sync_blocked")
 	a.deviceID, err = a.ensureKV("device_id", model.NewID())
 	if err != nil {
 		st.Close()
@@ -231,6 +236,62 @@ func (a *App) setLanguage(language string) {
 	}
 }
 
+func (a *App) syncBlocked() string {
+	a.blockMu.RLock()
+	defer a.blockMu.RUnlock()
+	return a.blocked
+}
+
+func (a *App) setSyncBlocked(reason string) {
+	a.blockMu.Lock()
+	if a.blocked == reason {
+		a.blockMu.Unlock()
+		return
+	}
+	a.blocked = reason
+	a.blockMu.Unlock()
+	_ = a.store.SetKV("sync_blocked", reason)
+	a.emit(map[string]any{"type": "sessions_changed"})
+}
+
+func (a *App) clearSyncBlocked() {
+	a.setSyncBlocked("")
+}
+
+// noteSyncError is deliberately a catch-all: any failed upload/download is a
+// sync block until a later operation succeeds. Local validation errors do not
+// reach this function.
+func (a *App) noteSyncError(err error) {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return
+	}
+	var remote *RemoteError
+	if errors.As(err, &remote) {
+		reason := "sync"
+		switch remote.Code {
+		case "Unauthorized", "TokenExpired", "InvalidPassword":
+			reason = "auth"
+		case "MembershipExpired", "StorageLimit", "DeviceLimit", "SyncDisabled", "RateLimited":
+			reason = "limit"
+		case "HttpError", "Unknown":
+			reason = "server"
+		default:
+			code := strings.ToLower(remote.Code)
+			if strings.Contains(code, "limit") || strings.Contains(code, "quota") ||
+				strings.Contains(code, "credit") || strings.Contains(code, "concurr") ||
+				strings.Contains(code, "busy") || strings.Contains(code, "capacity") {
+				reason = "limit"
+			}
+		}
+		a.setSyncBlocked(reason)
+		return
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, context.DeadlineExceeded) {
+		a.setSyncBlocked("network")
+	}
+}
+
 func (a *App) loadSync() {
 	url, _ := a.store.KV("server_url")
 	access, _ := a.store.KV("server_access_token")
@@ -244,6 +305,7 @@ func (a *App) loadSync() {
 	if url != "" && (access != "" || refresh != "") {
 		s := NewSync(url, access, refresh, expiresAt, device, a.currentLanguage())
 		s.OnTokens = a.saveServerTokens
+		s.OnError = a.noteSyncError
 		a.sync = s
 		return
 	}

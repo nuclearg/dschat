@@ -6,11 +6,16 @@ APP=dist/Dschat.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-TMPBIN="$(mktemp -d)"
-CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -o "$TMPBIN/dschat-arm64" ./app/osx
-CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -o "$TMPBIN/dschat-amd64" ./app/osx
-lipo -create "$TMPBIN/dschat-arm64" "$TMPBIN/dschat-amd64" -output "$APP/Contents/MacOS/dschat"
-rm -rf "$TMPBIN"
+ARCH="${MACOS_ARCH:-universal}"
+if [[ "$ARCH" == "arm64" ]]; then
+  CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o "$APP/Contents/MacOS/dschat" ./app/osx
+else
+  TMPBIN="$(mktemp -d)"
+  CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -o "$TMPBIN/dschat-arm64" ./app/osx
+  CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -o "$TMPBIN/dschat-amd64" ./app/osx
+  lipo -create "$TMPBIN/dschat-arm64" "$TMPBIN/dschat-amd64" -output "$APP/Contents/MacOS/dschat"
+  rm -rf "$TMPBIN"
+fi
 cp packaging/macos/Info.plist "$APP/Contents/Info.plist"
 
 ICONSET="$(mktemp -d)/icon.iconset"

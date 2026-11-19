@@ -213,10 +213,12 @@ func (a *App) ImportSession(req ImportSessionRequest) (*ImportSessionResult, err
 	warning := ""
 	if a.Sync() != nil {
 		if err := a.syncImportedSession(&sess, turns); err != nil {
+			a.noteSyncError(err)
 			warning = err.Error()
 		} else {
 			synced = true
 			sess.SyncState = SyncSynced
+			a.clearSyncBlocked()
 		}
 	}
 	return &ImportSessionResult{Session: sess, Synced: synced, Warning: warning}, nil
@@ -305,7 +307,7 @@ func (a *App) syncImportedSession(sess *model.Session, turns []model.Turn) error
 			}
 		}
 	}
-	if err := a.store.SetSessionSyncState(sess.ID, SyncSynced); err != nil {
+	if err := a.store.SetSessionSynced(sess.ID, a.currentServerID()); err != nil {
 		return err
 	}
 	for _, t := range turns {
