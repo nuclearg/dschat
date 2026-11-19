@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DSChat</string>
+    <string name="loading">正在启动本地引擎…</string>
+    <string name="retry">重试</string>
+    <string name="error_engine">本地引擎启动失败：%1$s</string>
+    <string name="error_timeout">本地引擎启动超时。</string>
+    <string name="error_page">无法加载应用，请检查本地引擎后重试。</string>
+    <string name="channel_name">DSChat 引擎</string>
+    <string name="channel_description">应用在后台时保持本地 DSChat 引擎运行。</string>
+    <string name="notification_title">DSChat</string>
+    <string name="notification_text">本地引擎正在运行</string>
+</resources>

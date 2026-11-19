@@ -7,6 +7,8 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.graphics.Color
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
@@ -17,8 +19,11 @@ import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.webkit.ConsoleMessage
 import android.webkit.PermissionRequest
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebChromeClient.FileChooserParams
@@ -67,8 +72,10 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        configureWindow()
         buildUi()
         configureWebView()
+        updateSystemBarAppearance()
         registerBackCallback()
         requestNotificationPermission()
         EngineService.start(this)
@@ -78,7 +85,13 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        updateSystemBarAppearance()
         if (::webView.isInitialized) webView.onResume()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        updateSystemBarAppearance()
     }
 
     override fun onPause() {
@@ -156,8 +169,52 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------------------- UI
 
+    private fun configureWindow() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false)
+            window.statusBarColor = Color.TRANSPARENT
+            window.navigationBarColor = Color.TRANSPARENT
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun updateSystemBarAppearance() {
+        val night = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val controller = window.insetsController ?: return
+            val mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+            controller.setSystemBarsAppearance(if (night) 0 else mask, mask)
+        } else {
+            var flags = window.decorView.systemUiVisibility
+            flags = if (night) {
+                flags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+            } else {
+                flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            }
+            window.decorView.systemUiVisibility = flags
+        }
+    }
+
     private fun buildUi() {
         val root = FrameLayout(this)
+
+        // targetSdk 37 draws edge-to-edge; pad the WebView/overlay by the
+        // system bars and keyboard instead of letting controls slide under them.
+        root.setOnApplyWindowInsetsListener { view, insets ->
+            // Below API 30 the decor already fits the system bars; only the
+            // edge-to-edge path needs explicit padding.
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                return@setOnApplyWindowInsetsListener insets
+            }
+            val bars = insets.getInsets(
+                WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout(),
+            )
+            val ime = insets.getInsets(WindowInsets.Type.ime()).bottom
+            view.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime))
+            insets
+        }
 
         webView = WebView(this)
         root.addView(
@@ -202,6 +259,7 @@ class MainActivity : Activity() {
             ),
         )
         setContentView(root)
+        root.requestApplyInsets()
     }
 
     private fun showLoading(message: String) {
@@ -282,6 +340,22 @@ class MainActivity : Activity() {
                     showError(getString(R.string.error_page))
                 }
             }
+
+            override fun onRenderProcessGone(
+                view: WebView,
+                detail: RenderProcessGoneDetail,
+            ): Boolean {
+                Log.e(TAG, "WebView renderer gone, didCrash=${detail.didCrash()}")
+                if (view === webView && !isFinishing) {
+                    showError(getString(R.string.error_page))
+                    // Recreating the activity rebuilds only the WebView; the
+                    // foreground EngineService keeps chatsvr and in-flight turns.
+                    handler.postDelayed({
+                        if (!isFinishing) recreate()
+                    }, 500)
+                }
+                return true
+            }
         }
 
         webView.webChromeClient = object : WebChromeClient() {
@@ -296,6 +370,13 @@ class MainActivity : Activity() {
                 val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
                     type = "*/*"
+                    val mimeTypes = fileChooserParams.acceptTypes
+                        ?.map { it.trim() }
+                        ?.filter { it.contains("/") }
+                        ?.takeIf { it.isNotEmpty() }
+                    if (mimeTypes != null) {
+                        putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes.toTypedArray())
+                    }
                     if (fileChooserParams.mode == FileChooserParams.MODE_OPEN_MULTIPLE) {
                         putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                     }

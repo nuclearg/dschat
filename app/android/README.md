@@ -7,6 +7,7 @@ waits for the loopback URL and displays it in a `WebView`.
 | Item | Value |
 | --- | --- |
 | Package / applicationId | `com.dschat.android` |
+| Version | 0.1.1 (versionCode 2) |
 | Launcher activity | `com.dschat.android.MainActivity` |
 | Engine service | `com.dschat.android.EngineService` (`specialUse` foreground type) |
 | minSdk / compileSdk / targetSdk | 26 / 37 / 37 |
@@ -39,6 +40,18 @@ waits for the loopback URL and displays it in a `WebView`.
   finishes the activity. External links open the system browser.
 - Cleartext HTTP is limited to `127.0.0.1`/`localhost` by
   `res/xml/network_security_config.xml`; everything else remains TLS-only.
+- The web UI is the same official demo bundle embedded in chatsvr, so Android
+  automatically reuses the desktop features: session ownership/status icons,
+  blocked/fragment badges, DeepSeek ZIP import, local delete, sessionsvr
+  password login/switch/logout, Chinese/English UI and `X-Language`.
+- Native WebView shell hardening:
+  - targetSdk 37 edge-to-edge padding for system bars, display cutout, and IME;
+  - light/dark system-bar icon appearance follows the system night mode;
+  - Chinese native loading/error/notification strings via `values-zh`;
+  - WebView renderer crash recovery recreates only the WebView, keeping the
+    foreground engine and in-flight turns alive;
+  - file chooser forwards WebView MIME type filters while keeping `*/*` for
+    DeepSeek ZIP import.
 - Downloads, camera capture, and release signing are intentionally not
   implemented.
 
