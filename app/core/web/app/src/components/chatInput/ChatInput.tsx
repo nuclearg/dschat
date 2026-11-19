@@ -318,11 +318,11 @@ type UsageStats = { tps: number; cache: number; ctx: number }
 
 /** 用最近一条有 usage 的回答计算输入框右上角的三个指标。 */
 const usageStats = (session: Session | undefined): UsageStats => {
-  if (!session) return { tps: 0, cache: 0, ctx: 0 }
+  if (!session) {return { tps: 0, cache: 0, ctx: 0 }}
   const path = getVisibleMessages(session)
   for (let i = path.length - 1; i >= 0; i--) {
     const message = path[i]
-    if (message.role !== 'assistant' || !message.usage) continue
+    if (message.role !== 'assistant' || !message.usage) {continue}
     const usage = message.usage
     const input =
       (usage.input_tokens || 0) +

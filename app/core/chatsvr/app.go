@@ -309,13 +309,6 @@ func (a *App) loadSync() {
 		a.sync = s
 		return
 	}
-	// Pairing-era token (or a half-written pair) has no refresh credentials;
-	// force the UI back to "not connected" instead of showing a dead server.
-	if old, _ := a.store.KV("server_token"); old != "" {
-		_ = a.store.SetKV("server_url", "")
-		_ = a.store.SetKV("server_token", "")
-		_ = a.store.SetKV("server_device_id", "")
-	}
 }
 
 func (a *App) saveServerTokens(access, refresh string, accessExpiresAt int64) {

@@ -12,7 +12,7 @@ import {
 import type { FileAttachment } from './types.js'
 
 export type DraftAttachment = {
-  /** 本地标识，也是 IndexedDB 原件与上传任务的 key */
+  /** 本地标识，也是附件原件与上传任务的 key */
   id: string
   file: File
   isImage: boolean

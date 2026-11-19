@@ -555,7 +555,6 @@ func (a *App) handleServerLogin(w http.ResponseWriter, r *http.Request) {
 	_ = a.store.SetKV("server_id", newServerID)
 	_ = a.store.SetKV("server_device_id", res.DeviceID)
 	a.saveServerTokens(res.AccessToken, res.RefreshToken, res.AccessExpiresAt)
-	_ = a.store.SetKV("server_token", "") // remove the pairing-era token
 	a.clearSyncBlocked()
 	s := NewSync(base, res.AccessToken, res.RefreshToken, res.AccessExpiresAt, res.DeviceID, a.currentLanguage())
 	s.OnTokens = a.saveServerTokens
@@ -574,7 +573,6 @@ func (a *App) handleDisconnect(w http.ResponseWriter, _ *http.Request) {
 	a.setSync(nil)
 	a.clearSyncBlocked()
 	_ = a.store.SetKV("server_url", "")
-	_ = a.store.SetKV("server_token", "")
 	_ = a.store.SetKV("server_access_token", "")
 	_ = a.store.SetKV("server_refresh_token", "")
 	_ = a.store.SetKV("server_access_expires_at", "")
@@ -655,28 +653,13 @@ func (a *App) staticHandler() http.Handler {
 	if err != nil {
 		return http.NotFoundHandler()
 	}
-	legacy, err := fs.Sub(web.FS, "legacy")
-	if err != nil {
-		return http.NotFoundHandler()
-	}
 	distServer := http.FileServer(http.FS(dist))
-	legacyServer := http.FileServer(http.FS(legacy))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if lang := strings.TrimSpace(r.Header.Get("X-Language")); lang != "" {
 			a.setLanguage(lang)
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.NotFound(w, r)
-			return
-		}
-		if r.URL.Path == "/legacy" {
-			http.Redirect(w, r, "/legacy/", http.StatusFound)
-			return
-		}
-		if strings.HasPrefix(r.URL.Path, "/legacy/") {
-			r2 := r.Clone(r.Context())
-			r2.URL.Path = strings.TrimPrefix(r.URL.Path, "/legacy")
-			legacyServer.ServeHTTP(w, r2)
 			return
 		}
 		p := strings.TrimPrefix(r.URL.Path, "/")

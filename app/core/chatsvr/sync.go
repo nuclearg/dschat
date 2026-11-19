@@ -23,12 +23,9 @@ type RemoteError struct {
 	Code    string         `json:"code"`
 	Message string         `json:"message"`
 	Data    map[string]any `json:"data,omitempty"`
-	TurnID  string         `json:"turnId,omitempty"`
 }
 
 func (e *RemoteError) Error() string { return fmt.Sprintf("%s: %s", e.Code, e.Message) }
-
-func (e *RemoteError) IsOpenTurn() bool { return e.Code == "OpenTurn" }
 
 func (e *RemoteError) IsAuthError() bool {
 	return e.Code == "Unauthorized" || e.Code == "TokenExpired"

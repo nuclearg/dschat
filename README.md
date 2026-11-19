@@ -2,7 +2,9 @@
 
 跨端 DeepSeek 聊天客户端：一个本地 `chatsvr` 引擎 + 内嵌 Web UI，以及一个可选的 `sessionsvr` 同步中心。桌面端与 Android/iOS 共用同一份 Go 引擎。
 
-当前进度：**官方 demo 前端已接到 chatsvr**（只用它的视觉/交互，不再用它的 IndexedDB/状态机），本地引擎 + sessionsvr 同步已跑通；macOS 菜单栏、Windows 托盘、Android WebView 壳均已构建。官方网关尚未完成。
+当前进度：**官方 demo 前端已接到 chatsvr**，本地引擎 + sessionsvr 同步已跑通；macOS 菜单栏、Windows 托盘、Android WebView 壳均已构建。官方网关尚未完成。
+
+协议和数据库结构已收敛为 **v1**：sessionsvr 的 `protocol=1`，chatsvr/sessionsvr 的 schema 均为 v1。不保留旧库迁移和旧协议兼容；升级时必须使用新数据目录或重新导入。
 
 ![UI](docs/ui.png)
 
@@ -20,7 +22,6 @@
 ## 前端
 
 - `/`：官方 chat-demo 前端（MIT，源码在 `app/core/web/app`），视觉与交互照抄官方。会话、消息、turn 树、设置全部来自 chatsvr；所有 DeepSeek 请求经 `/api/llm/*` 由 chatsvr 注入 key，浏览器不保存 key、也不直接访问任何外部 API。
-- `/legacy`：上一版自绘 UI，仍保留，方便对照。
 - 注意：由于后端是 turn 模型（重新生成 = 同一父节点下新增一个带 Q 副本的 turn），官方 UI 的版本选择器会显示在「问题」一侧，而不是「回答」一侧；样式一致，位置与官方 demo 略有差异。
 
 ## 构建
@@ -109,7 +110,7 @@ app/core/          # 全平台共用（纯 Go）
   chatsvr/         # turn 引擎、本地 API、同步客户端、附件
   deepseek/        # Messages / Files 客户端
   model/ xdb/ apierr/ httpx/
-  web/             # 内嵌前端：dist/（官方 demo 构建产物）+ legacy/（旧版 UI）+ app/（demo 源码）
+  web/             # 内嵌前端：dist/（官方 demo 构建产物）+ app/（demo 源码）
 app/desktop/       # macOS + Windows 共用：引擎启动 + 菜单栏/托盘 + 开浏览器
 app/osx/           # darwin main
 app/win/           # Windows 入口、托盘、exe 资源

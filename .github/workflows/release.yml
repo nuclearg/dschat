@@ -14,6 +14,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Go tests and vet
+        run: |
+          go vet ./...
+          go test ./...
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/core/web/app/pnpm-lock.yaml
+      - name: TypeScript typecheck and lint
+        working-directory: app/core/web/app
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm type
+          pnpm lint
+
   web:
     runs-on: ubuntu-latest
     steps:
@@ -136,7 +163,7 @@ jobs:
           retention-days: 1
 
   release:
-    needs: [web, sessionsvr, macos-app, windows-app]
+    needs: [test, web, sessionsvr, macos-app, windows-app]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:

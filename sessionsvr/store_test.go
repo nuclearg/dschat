@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"os"
 	"strings"
 	"testing"
@@ -201,5 +202,42 @@ func TestSoftDeleteAndCleanup(t *testing.T) {
 	}
 	if _, _, err := st.GetSession(sess.ID); err == nil {
 		t.Fatal("expired session still readable")
+	}
+}
+
+func TestSchemaV1(t *testing.T) {
+	if ProtocolVersion != 1 {
+		t.Fatalf("protocol = %d", ProtocolVersion)
+	}
+	st, err := OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	rows, err := st.db.Query(`pragma table_info(sessions)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	columns := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			t.Fatal(err)
+		}
+		columns[name] = true
+	}
+	rows.Close()
+	if !columns["deleted_at"] {
+		t.Fatalf("sessions columns = %v", columns)
+	}
+	var version string
+	if err := st.db.QueryRow(`select value from meta where key='schema_version'`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != "1" {
+		t.Fatalf("schema version = %q", version)
 	}
 }

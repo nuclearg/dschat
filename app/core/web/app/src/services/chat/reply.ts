@@ -164,33 +164,6 @@ export const getReplyText = (reply: AssistantMessage) =>
   reply.blocks.map((block) => (block.type === 'text' ? block.text : '')).join('')
 
 /**
- * 只有正常达到输出上限或被停止的回复可续写，报错回复不能续写。
- * 末条限制由调用方判断，拒绝和客户端工具调用不能续写。
- * 本轮含服务端工具调用或结果（含 READ_LINK 和孤立结果块）的回复不能续写。
- * 服务端模板提示不能作为续写前缀。
- */
-export const canContinueReply = (reply: AssistantMessage): boolean => {
-  if (
-    !reply.prefix ||
-    reply.stopReason === 'refusal' ||
-    reply.stopReason === 'tool_use' ||
-    reply.blocks.some(
-      (block) =>
-        block.type === 'server_tool_use' ||
-        block.type === 'web_search_tool_result' ||
-        block.type === 'web_fetch_tool_result' ||
-        (block.type === 'text' && block.isTemplate)
-    )
-  ) {
-    return false
-  }
-  return (
-    reply.status === 'stopped' ||
-    (reply.status === 'done' && reply.stopReason === 'max_tokens')
-  )
-}
-
-/**
  * 已结束或停止且有回答文本的回复才放进上下文；被安全拒绝的轮次不回传。
  * 服务端模板提示不进入上下文。
  */

@@ -10,7 +10,7 @@ import type {
 } from '../api/types.js'
 
 /**
- * 消息附件。id 是本地标识（IndexedDB files 表的主键，原件按它存储，所有引用同一 id 的消息共用一份），
+ * 消息附件。id 是本地标识（原件由 chatsvr 保存，所有引用同一 id 的消息共用一份），
  * 导入的附件沿用导出产物里的文件 ID；本地没有原件的附件只展示文件名，不进入请求。
  * serverId 是 Files API 返回的 file_id，导入的数据或尚未上传成功的文件为 null，发送前补传。
  */
@@ -127,15 +127,3 @@ export type SessionSummary = Pick<Session, 'id' | 'title' | 'createdAt' | 'updat
   transferState?: 'synced' | 'local' | 'pending' | 'uploading' | 'blocked' | 'fragment'
   hasFragment?: boolean
 }
-
-/** 显式提取字段，避免将完整会话的消息带进列表。 */
-export const toSessionSummary = (session: SessionSummary): SessionSummary => ({
-  id: session.id,
-  title: session.title,
-  createdAt: session.createdAt,
-  updatedAt: session.updatedAt,
-  ...(session.ownerDeviceId ? { ownerDeviceId: session.ownerDeviceId } : {}),
-  ...(session.syncState ? { syncState: session.syncState } : {}),
-  ...(session.transferState ? { transferState: session.transferState } : {}),
-  ...(session.hasFragment ? { hasFragment: true } : {}),
-})

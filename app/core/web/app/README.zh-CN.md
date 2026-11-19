@@ -37,7 +37,7 @@ pnpm build
 
 ## 数据
 
-API Key 和设置保存在浏览器 localStorage，会话及附件原件保存在 IndexedDB，本地数据按浏览器用户配置和站点源（origin）隔离。发送对话、上传附件和使用语音功能时，相应内容会提交给配置的 API 服务。
+API Key 和设置保存在 chatsvr，会话及附件原件在 chatsvr 数据目录；浏览器 localStorage 只保留界面偏好。发送对话、上传附件和使用语音功能时，相应内容会提交给配置的 API 服务。
 
 设置中的历史导入导出使用 ZIP 格式。导入会在确认并校验成功后替换全部本地会话和附件；导出包含会话与本地可用的图片原件，不包含 API Key、设置或非图片附件原件。格式与保留范围见[历史导入导出](src/services/chat/history/README.md)。
 

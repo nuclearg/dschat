@@ -19,7 +19,8 @@ import (
 	"dschat/app/core/xdb"
 )
 
-const ProtocolVersion = 3
+const ProtocolVersion = 1
+const SchemaVersion = 1
 
 type Device struct {
 	ID        string
@@ -45,7 +46,7 @@ func OpenStore(dir string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := migrate(db); err != nil {
+	if err := initSchema(db); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -54,7 +55,7 @@ func OpenStore(dir string) (*Store, error) {
 
 func (s *Store) Close() error { return s.db.Close() }
 
-func migrate(db *sql.DB) error {
+func initSchema(db *sql.DB) error {
 	schema := `
 create table if not exists meta (key text primary key, value text not null);
 create table if not exists devices (
@@ -112,7 +113,7 @@ create table if not exists attachments (
 	if _, err := db.Exec(schema); err != nil {
 		return err
 	}
-	_, _ = db.Exec(`alter table sessions add column deleted_at integer not null default 0`)
+	_, _ = db.Exec(`insert or replace into meta(key, value) values('schema_version', ?)`, SchemaVersion)
 	_, _ = db.Exec(`insert or ignore into meta(key, value) values('server_id', ?)`, model.NewID())
 	return nil
 }
@@ -706,6 +707,3 @@ func (s *Store) CleanupExpired(cutoff int64) (int, error) {
 func (s *Store) TouchDevice(id string) {
 	_, _ = s.db.Exec(`update devices set last_seen_at=? where id=?`, model.NowMS(), id)
 }
-
-var _ = os.Getenv
-var _ = time.Now

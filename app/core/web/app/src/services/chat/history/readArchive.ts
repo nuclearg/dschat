@@ -29,8 +29,8 @@ const readJson = async (entry: ArchiveEntry): Promise<unknown> => {
 
 /**
  * Parse a DeepSeek `deepseek_data-*.zip` (export_format_version 3) into the
- * local Session shape. Unlike the old IndexedDB importer this keeps everything
- * in memory and lets the caller upload images and create chatsvr sessions.
+ * local Session shape in memory, so the caller can upload images and create
+ * chatsvr sessions without a browser database.
  */
 export const readDeepSeekArchive = async (file: File): Promise<DeepSeekArchive> => {
   if (!(await isZipFile(file))) {

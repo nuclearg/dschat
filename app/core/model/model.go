@@ -21,7 +21,7 @@ type Session struct {
 	OwnerID   string `json:"ownerDeviceId"`
 	CreatedAt int64  `json:"createdAt"`
 	UpdatedAt int64  `json:"updatedAt"`
-	// SyncState is local-only bookkeeping: local | synced | detached.
+	// SyncState is local-only bookkeeping: local | synced.
 	SyncState string `json:"syncState,omitempty"`
 	// ServerID is the sessionsvr identity this session is synced to. Local only.
 	ServerID string `json:"-"`

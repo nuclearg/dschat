@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * loopback URL from [EngineService.url] once it is published.
  *
  * The engine is started on a worker thread because [Mobile.start] performs
- * disk I/O (SQLite migrations) and must never run on the main thread.
+ * disk I/O (SQLite initialization) and must never run on the main thread.
  */
 class EngineService : Service() {
 

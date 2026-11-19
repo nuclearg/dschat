@@ -41,9 +41,7 @@ button.image {
   color: var(--dsw-alias-label-secondary);
 }
 
-.retryImage {
-  border-color: var(--dsw-alias-state-error-primary);
-}
+
 
 .overlay {
   position: absolute;
@@ -60,14 +58,7 @@ button.image {
   }
 }
 
-.retryOverlay {
-  background-color: rgba(0, 0, 0, 0.4);
-  transition: background-color var(--ds-transition-duration) var(--ds-ease-in-out);
 
-  button:hover > & {
-    background-color: rgba(0, 0, 0, 0.5);
-  }
-}
 
 /* 失败原因：底部 60px 渐变上的白字，超出两行省略 */
 .reason {

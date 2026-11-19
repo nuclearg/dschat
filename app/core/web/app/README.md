@@ -37,7 +37,7 @@ The output is written to `dist/`. Deploy it to a static web server or open `dist
 
 ## Data and storage
 
-Your API key and settings are stored in the browser's localStorage. Conversations and original attachments are stored in IndexedDB. Local data is isolated by browser profile and site origin. Sending messages, uploading attachments, and using speech features sends the relevant content to the configured API service.
+Your API key and settings are stored in chatsvr. Conversations and original attachments live in chatsvr's data directory; the browser only keeps UI preferences in localStorage. Sending messages, uploading attachments, and using speech features sends the relevant content to the configured API service.
 
 History import and export in Settings use ZIP archives. After confirmation and successful validation, importing replaces all local conversations and attachments. Exports include conversations and locally available original images, but exclude API keys, settings, and original non-image attachments. See the [history import/export documentation (Chinese)](src/services/chat/history/README.md) for the archive format and preservation details.
 

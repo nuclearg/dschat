@@ -83,9 +83,14 @@ export const importDeepSeek = async (
   const summary: ImportSummary = { imported: 0, failed: 0, warnings: 0 }
 
   const uploadFile = async (id: string, name: string, mime: string) => {
-    if (uploaded.has(id)) return uploaded.get(id)!
+    const cached = uploaded.get(id)
+    if (cached) {
+      return cached
+    }
     const blob = images.get(id)
-    if (!blob) return null
+    if (!blob) {
+      return null
+    }
     const attachment = await uploadAttachment(blob, name, mime || imageMime(name))
     const result = { id: attachment.id, mime: attachment.mime || mime || imageMime(name) }
     uploaded.set(id, result)
@@ -96,15 +101,15 @@ export const importDeepSeek = async (
     const session = sessions[index]
     try {
       for (const message of session.messages) {
-        if (message.role !== 'user') continue
+        if (message.role !== 'user') {continue}
         for (const file of message.files) {
-          if (!file.isImage) continue
+          if (!file.isImage) {continue}
           await uploadFile(file.id, file.name, file.mimeType)
         }
       }
       const result = await importSession(payloadOf(session, uploaded))
       summary.imported += 1
-      if (result.warning) summary.warnings += 1
+      if (result.warning) {summary.warnings += 1}
     } catch {
       summary.failed += 1
     }

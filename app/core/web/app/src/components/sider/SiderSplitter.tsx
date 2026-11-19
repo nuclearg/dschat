@@ -26,7 +26,7 @@ export const SiderSplitter = ({
   }
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return
+    if (event.button !== 0) {return}
     event.preventDefault()
     const el = event.currentTarget
     const startX = event.clientX
@@ -38,11 +38,11 @@ export const SiderSplitter = ({
     document.body.style.cursor = 'col-resize'
 
     const move = (moveEvent: PointerEvent) => {
-      if (!dragging.current) return
+      if (!dragging.current) {return}
       apply(startWidth + moveEvent.clientX - startX)
     }
     const finish = (finishEvent: PointerEvent) => {
-      if (!dragging.current) return
+      if (!dragging.current) {return}
       dragging.current = false
       delete el.dataset.dragging
       el.releasePointerCapture?.(finishEvent.pointerId)
@@ -59,7 +59,7 @@ export const SiderSplitter = ({
   }
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {return}
     event.preventDefault()
     const next = apply(current.current + (event.key === 'ArrowRight' ? 16 : -16))
     onCommit(next)

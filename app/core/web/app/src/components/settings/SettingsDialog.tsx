@@ -118,17 +118,16 @@ const SettingsContent = () => {
           ) : (
             <>
               <SessionsvrSetting />
-              <ImportHistory historyImport={historyImport} disabled={historyBusy || !IMPORT_READY} />
+              <ImportHistory historyImport={historyImport} disabled={historyBusy} />
               <SettingCell
                 label={t('deleteAllSessions')}
                 description={t('deleteAllSessionsDescription')}
-                status={DELETE_READY ? null : { key: 'historyNotImplemented' }}
                 action={
                   <Button
                     variant="dangerOutlined"
                     size="m"
                     className={styles.cellButton}
-                    disabled={historyBusy || !DELETE_READY}
+                    disabled={historyBusy}
                     onClick={historyDelete.open}
                   >
                     {t('delete')}
@@ -419,10 +418,6 @@ const ThemeSetting = () => {
 /** `reason` 为失败原因的文案 key，展示时按当前语言翻译后填入 `message` 参数。 */
 type Status = (TranslationMessage & { error?: boolean; reason?: TranslationKey }) | null
 
-/** chatsvr 的 DeepSeek ZIP 导入/删除尚未接入；先禁用入口。 */
-const IMPORT_READY = true
-const DELETE_READY = true
-
 const SettingCell = ({
   label,
   description,
@@ -432,7 +427,7 @@ const SettingCell = ({
 }: {
   label: string
   description?: string
-  status: Status
+  status?: Status
   action: ReactNode
   className?: string
 }) => {
@@ -516,9 +511,6 @@ const SessionsvrSetting = () => {
     }
     if (!password.trim() && !emptyAcknowledged) {
       setError(t('syncEmptyPasswordRequired'))
-      return
-    }
-    if (!password.trim() && !window.confirm(t('syncEmptyPasswordConfirm'))) {
       return
     }
     setBusy(true)
@@ -640,7 +632,7 @@ const ImportHistory = ({
     <SettingCell
       label={t('historyImport')}
       description={t('historyImportDescription')}
-      status={IMPORT_READY ? historyImport.status : { key: 'historyNotImplemented' }}
+      status={historyImport.status}
       action={
         <>
           <Button

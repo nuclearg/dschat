@@ -73,3 +73,37 @@ func TestRPCLoginAndSession(t *testing.T) {
 		t.Fatalf("turns = %+v", turns)
 	}
 }
+
+func TestRPCOpenTurnCarriesData(t *testing.T) {
+	srv, err := New(Config{Data: t.TempDir(), Password: "pw"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	login := func(device string) string {
+		res := rpc(t, ts, "", "", "auth.login", map[string]string{"password": "pw", "deviceId": device})
+		return res["data"].(map[string]any)["accessToken"].(string)
+	}
+	owner := login("owner")
+	other := login("other")
+	if res := rpc(t, ts, "", owner, "sessions.create", map[string]string{"id": "s1", "title": "t"}); res["success"] != true {
+		t.Fatalf("create = %+v", res)
+	}
+	if res := rpc(t, ts, "", owner, "sessions.turn.append", map[string]any{
+		"sessionId": "s1",
+		"turn":      map[string]any{"id": "t1", "parentTurnId": "0", "q": map[string]any{"text": "hi"}},
+	}); res["success"] != true {
+		t.Fatalf("append = %+v", res)
+	}
+	res := rpc(t, ts, "", other, "sessions.claim", map[string]any{"sessionId": "s1", "force": false})
+	if res["success"] != false || res["errCode"] != "OpenTurn" {
+		t.Fatalf("claim = %+v", res)
+	}
+	data, ok := res["data"].(map[string]any)
+	if !ok || data["turnId"] != "t1" {
+		t.Fatalf("open turn data = %+v", res["data"])
+	}
+}

@@ -2,14 +2,13 @@ import clsx from 'clsx'
 import { useEffect, useState } from 'react'
 import { useTranslate } from '../../i18n/index.js'
 import { useUploads } from '../../services/attachments.js'
-import { loadFile } from '../../services/chat/db.js'
+import { loadFile } from '../../services/chat/files.js'
 import type { FileAttachment } from '../../services/chat/types.js'
-import { IconPhotoErrorFill20, IconRefreshOutline16 } from '../base/icons.js'
-import { Tooltip } from '../base/Tooltip.js'
+import { IconPhotoErrorFill20 } from '../base/icons.js'
 import { FileCard } from '../files/FileCard.js'
 import styles from './MessageFile.module.css'
 
-/** 原件从 IndexedDB 读出并生成本地地址；undefined 表示加载中，null 表示原件缺失。 */
+/** 原件从 chatsvr 读出并生成本地地址；undefined 表示加载中，null 表示原件缺失。 */
 const useFileUrl = (id: string) => {
   const [fileUrl, setFileUrl] = useState<{ id: string; url: string | null } | null>(null)
   useEffect(() => {
@@ -49,11 +48,8 @@ const useUploadState = (file: FileAttachment) =>
  */
 export const MessageFile = ({
   file,
-  onRetry,
 }: {
   file: FileAttachment
-  /** 本条消息补传失败且可重试时提供 */
-  onRetry: (() => void) | null
 }) => {
   const t = useTranslate()
   const url = useFileUrl(file.id)
@@ -61,10 +57,7 @@ export const MessageFile = ({
   const upload = useUploadState(file)
   const uploading = upload?.status === 'uploading'
   const failed = upload?.status === 'error'
-  const retryable = failed && upload.retryable
   const errorText = failed ? t(upload.error.key, upload.error.params) : undefined
-
-  const retry = retryable ? onRetry : null
 
   if (file.isImage && url !== null) {
     const preview = url ? (
@@ -77,7 +70,7 @@ export const MessageFile = ({
       )
     ) : null
 
-    // 上传中：本地原件已在 IndexedDB，先垫在蒙层下显示，避免只有一块灰色占位
+    // 上传中：原件已由 chatsvr 保存，先垫在蒙层下显示，避免只有一块灰色占位
     if (uploading) {
       return (
         <div className={clsx(styles.image, styles.imageThumb)} title={file.name}>
@@ -96,7 +89,7 @@ export const MessageFile = ({
       ) : null
 
     // 上传失败不可重试：保留缩略图，底部渐变显示原因
-    if (failed && !retry) {
+    if (failed) {
       return (
         <div
           className={clsx(styles.image, styles.imageThumb)}
@@ -110,27 +103,6 @@ export const MessageFile = ({
           )}
           {reason}
         </div>
-      )
-    }
-
-    // 上传失败可重试：缩略图 + 红色描边 + 蒙层重试图标，原因在底部
-    if (failed && retry) {
-      const retryLabel = t('uploadRetry', { message: errorText ?? t('uploadFileStatusFailed') })
-      return (
-        <Tooltip content={retryLabel}>
-          <button
-            type="button"
-            className={clsx(styles.image, styles.imageThumb, styles.retryImage)}
-            aria-label={retryLabel}
-            onClick={retry}
-          >
-            {preview}
-            <div className={clsx(styles.overlay, styles.retryOverlay)}>
-              <IconRefreshOutline16 />
-            </div>
-            {reason}
-          </button>
-        </Tooltip>
       )
     }
 
@@ -157,7 +129,6 @@ export const MessageFile = ({
       size={file.size}
       status={uploading ? 'uploading' : failed ? 'error' : 'done'}
       error={errorText}
-      onRetry={retry ?? undefined}
       onOpen={url && !upload ? () => window.open(url, '_blank', 'noreferrer') : undefined}
     />
   )

@@ -303,7 +303,10 @@ export const toSession = (detail: ApiDetail): Session => {
       usage: answer?.usage as AssistantMessage['usage'],
       durationMs: answer?.durationMs,
       parentId: qid,
-      selectedChildId: nextOnPath.get(turn.id) ? Q_PREFIX + nextOnPath.get(turn.id)! : undefined,
+      selectedChildId: (() => {
+        const next = nextOnPath.get(turn.id)
+        return next ? Q_PREFIX + next : undefined
+      })(),
     }
     messages.push(reply)
   }

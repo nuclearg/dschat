@@ -13,6 +13,8 @@ import (
 	"dschat/app/core/xdb"
 )
 
+const SchemaVersion = 1
+
 const (
 	SyncLocal   = "local"
 	SyncSynced  = "synced"
@@ -28,7 +30,7 @@ func OpenStore(dataDir string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := migrateLocal(db); err != nil {
+	if err := initSchema(db); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -37,7 +39,7 @@ func OpenStore(dataDir string) (*Store, error) {
 
 func (s *Store) Close() error { return s.db.Close() }
 
-func migrateLocal(db *sql.DB) error {
+func initSchema(db *sql.DB) error {
 	_, err := db.Exec(`
 create table if not exists sessions (
   id text primary key,
@@ -100,9 +102,7 @@ create table if not exists drafts (
 	if err != nil {
 		return err
 	}
-	// 旧库补列；已存在时忽略错误。
-	_, _ = db.Exec(`alter table attachments add column file_uploaded_at integer not null default 0`)
-	_, _ = db.Exec(`alter table sessions add column server_id text not null default ''`)
+	_, _ = db.Exec(`insert or replace into kv(k,v) values('schema_version',?)`, SchemaVersion)
 	return nil
 }
 
@@ -176,11 +176,6 @@ func (s *Store) TouchSession(id string) error {
 
 func (s *Store) SetSessionOwner(id, owner string) error {
 	_, err := s.db.Exec(`update sessions set owner_device_id=?, updated_at=? where id=?`, owner, model.NowMS(), id)
-	return err
-}
-
-func (s *Store) SetSessionSyncState(id, state string) error {
-	_, err := s.db.Exec(`update sessions set sync_state=? where id=?`, state, id)
 	return err
 }
 

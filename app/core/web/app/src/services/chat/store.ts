@@ -71,7 +71,7 @@ const timers = new Map<string, number>()
 
 const later = (key: string, run: () => void, delay = 250) => {
   const prev = timers.get(key)
-  if (prev) window.clearTimeout(prev)
+  if (prev) {window.clearTimeout(prev)}
   timers.set(
     key,
     window.setTimeout(() => {
@@ -94,9 +94,9 @@ const markStreaming = (sessionId: string, turnId: string) => {
 const clearStreaming = (sessionId: string) => {
   streamTurns.delete(sessionId)
   set((state) => {
-    if (!Object.hasOwn(state.streaming, sessionId)) return state
+    if (!Object.hasOwn(state.streaming, sessionId)) {return state}
     const streaming = { ...state.streaming }
-    delete streaming[sessionId]
+    Reflect.deleteProperty(streaming, sessionId)
     return { streaming }
   })
 }
@@ -112,7 +112,7 @@ export const refreshSessions = async () => {
 }
 
 const loadSession = async (id: string, force = false) => {
-  if (!force && getSessionById(id)) return
+  if (!force && getSessionById(id)) {return}
   try {
     const detail = await getSession(id)
     const session = toSession(detail)
@@ -124,8 +124,8 @@ const loadSession = async (id: string, force = false) => {
     const live = session.messages.find(
       (message) => message.role === 'assistant' && (message.status === 'pending' || message.status === 'streaming')
     )
-    if (live) markStreaming(id, live.id)
-    else clearStreaming(id)
+    if (live) {markStreaming(id, live.id)}
+    else {clearStreaming(id)}
   } catch (error) {
     set((state) => ({
       sessionLoadErrors: { ...state.sessionLoadErrors, [id]: true },
@@ -137,7 +137,7 @@ const loadSession = async (id: string, force = false) => {
 }
 
 export const initChat = (): Promise<void> => {
-  if (bootstrapTask) return bootstrapTask
+  if (bootstrapTask) {return bootstrapTask}
   bootstrapTask = (async () => {
     try {
       const boot = await apiBootstrap()
@@ -210,7 +210,7 @@ export const removeSession = async (id: string): Promise<boolean> => {
   }
   set((state) => {
     const sessionCache = { ...state.sessionCache }
-    delete sessionCache[id]
+    Reflect.deleteProperty(sessionCache, id)
     return {
       sessions: state.sessions.filter((s) => s.id !== id),
       sessionCache,
@@ -222,7 +222,7 @@ export const removeSession = async (id: string): Promise<boolean> => {
 
 export const stopReply = (sessionId: string) => {
   const turnId = streamTurns.get(sessionId)
-  if (!turnId) return
+  if (!turnId) {return}
   void stopTurn(sessionId, turnId).catch((error) => {
     showToast(messageOf(error))
     clearStreaming(sessionId)
@@ -230,9 +230,9 @@ export const stopReply = (sessionId: string) => {
 }
 
 export const sendMessage = (targetSessionId: string | null): boolean => {
-  if (get().importingHistory || !get().ready) return false
+  if (get().importingHistory || !get().ready) {return false}
   const prepared = prepareDraftMessage(getDraft(targetSessionId), useUploads.getState().tasks)
-  if (!prepared) return false
+  if (!prepared) {return false}
   void (async () => {
     try {
       let sessionId = targetSessionId
@@ -259,10 +259,10 @@ export const sendMessage = (targetSessionId: string | null): boolean => {
 
 export const regenerateReply = (sessionId: string, messageId?: string) => {
   const session = getSessionById(sessionId)
-  if (!session) return
+  if (!session) {return}
   const path = getVisibleMessages(session)
   const id = messageId ?? path.at(-1)?.id
-  if (!id || id.startsWith(Q_PREFIX)) return
+  if (!id || id.startsWith(Q_PREFIX)) {return}
   void (async () => {
     try {
       const turn = await retryTurn(sessionId, id)
@@ -277,7 +277,7 @@ export const regenerateReply = (sessionId: string, messageId?: string) => {
 
 export const editMessage = (sessionId: string, messageId: string, content: string): boolean => {
   const turnId = turnIdOf(messageId)
-  if (!turnId) return false
+  if (!turnId) {return false}
   void (async () => {
     try {
       const turn = await editTurn(sessionId, turnId, content)
@@ -303,23 +303,9 @@ export const selectMessageVersion = (sessionId: string, messageId: string) => {
   })()
 }
 
-export const continueReply = (_sessionId: string, _messageId: string) => {}
-
-export const retryUpload = (_sessionId: string, _messageId: string) => {}
-
 export const claim = (sessionId: string, force = true) =>
   claimSession(sessionId, force).then(() => loadSession(sessionId, true))
 
-export const replaceHistory = async (write: () => Promise<void>): Promise<number> => {
-  set({ importingHistory: true })
-  try {
-    await write()
-    await refreshSessions()
-    return 0
-  } finally {
-    set({ importingHistory: false })
-  }
-}
 
 const applyToReply = (
   sessionId: string,
@@ -328,14 +314,14 @@ const applyToReply = (
 ) => {
   set((state) => {
     const session = state.sessionCache[sessionId]
-    if (!session) return state
+    if (!session) {return state}
     let found = false
     const messages = session.messages.map((message) => {
-      if (message.role !== 'assistant' || message.id !== turnId) return message
+      if (message.role !== 'assistant' || message.id !== turnId) {return message}
       found = true
       return update(message)
     })
-    if (!found) return state
+    if (!found) {return state}
     return {
       sessionCache: { ...state.sessionCache, [sessionId]: { ...session, messages } },
     }
@@ -347,8 +333,8 @@ const cloneBlock = (block: unknown): ReplyBlock =>
 
 const ensureLiveBlock = (reply: AssistantMessage, index: number, kind: 'text' | 'thinking') => {
   const blocks = [...reply.blocks]
-  while (blocks.length <= index) blocks.push({ type: 'text', text: '' })
-  if (!blocks[index]) blocks[index] = { type: kind, [kind]: '' } as unknown as ReplyBlock
+  while (blocks.length <= index) {blocks.push({ type: 'text', text: '' })}
+  if (!blocks[index]) {blocks[index] = { type: kind, [kind]: '' } as unknown as ReplyBlock}
   return blocks
 }
 
@@ -360,7 +346,7 @@ const applyEvent = (event: Record<string, unknown>) => {
     if (sawHello) {
       void refreshSessions()
       const active = get().activeId
-      if (active) void loadSession(active, true)
+      if (active) {void loadSession(active, true)}
     }
     sawHello = true
     return
@@ -374,9 +360,9 @@ const applyEvent = (event: Record<string, unknown>) => {
     return
   }
   if (type === 'turn_preempted') {
-    if (sessionId) clearStreaming(sessionId)
+    if (sessionId) {clearStreaming(sessionId)}
     showToast('已被其他设备接管，本轮输出已作废')
-    if (sessionId) later(`session:${sessionId}`, () => void loadSession(sessionId, true))
+    if (sessionId) {later(`session:${sessionId}`, () => void loadSession(sessionId, true))}
     return
   }
   if (type === 'error') {
@@ -393,17 +379,17 @@ const applyEvent = (event: Record<string, unknown>) => {
   }
   if (type === 'session_deleted') {
     later('sessions', () => void refreshSessions())
-    if (sessionId === get().activeId) set({ activeId: null })
+    if (sessionId === get().activeId) {set({ activeId: null })}
     return
   }
   if (type === 'session_created') {
     later('sessions', () => void refreshSessions())
     return
   }
-  if (!sessionId || !turnId) return
+  if (!sessionId || !turnId) {return}
 
   if (type === 'turn_started') {
-    if (!Object.hasOwn(get().streaming, sessionId)) markStreaming(sessionId, turnId)
+    if (!Object.hasOwn(get().streaming, sessionId)) {markStreaming(sessionId, turnId)}
     return
   }
   if (type === 'block_start') {
@@ -463,7 +449,7 @@ const applyEvent = (event: Record<string, unknown>) => {
 }
 
 const connectEvents = () => {
-  if (events) return
+  if (events) {return}
   events = openEvents()
   events.onmessage = (message) => {
     try {

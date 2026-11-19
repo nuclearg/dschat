@@ -196,6 +196,11 @@ blobs(id PK, size, mime, name, path)   -- 可选
 
 ## 6. 同步协议
 
+### 6.0 版本
+
+- sessionsvr 同步协议：**v1**。
+- chatsvr 本地数据库 / sessionsvr 数据库：**schema v1**。
+- 不提供旧 schema 迁移和旧协议兼容；旧数据需重新导入或清空。
 ### 6.1 配对与认证
 
 - sessionsvr 读取同目录 `config.properties` 的 `PASSWORD`（可为空；为空时打印警告）。
@@ -302,7 +307,7 @@ POST /v1/sessions.claim
 **SSE**
 
 ```
-data: {"success":true,"data":{"type":"hello","protocol":3,"serverId":"..."}}
+data: {"success":true,"data":{"type":"hello","protocol":1,"serverId":"..."}}
 data: {"success":true,"data":{"type":"session","sessionId":"...","ownerDeviceId":"..."}}
 data: {"success":true,"data":{"type":"turn","sessionId":"...","turnId":"...","parentTurnId":"..."}}
 data: {"success":true,"data":{"type":"answer","sessionId":"...","turnId":"..."}}
@@ -324,7 +329,6 @@ event: deleted      {sessionId}
 | `PARENT_OPEN` | 父节点还没有 answer |
 | `ANSWER_EXISTS` | 该 turn 已有 answer 且内容不同 |
 | `OPEN_TURN` | claim 时存在未闭合的 turn |
-| `PROTOCOL_MISMATCH` | 协议版本不兼容 |
 
 ### 6.5 顺序、幂等、积压
 
@@ -540,7 +544,7 @@ POST   /api/server/login  POST /api/server/disconnect
 
 - 以官方 chat-demo 为基线 fork（MIT），保留组件、Markdown、i18n、主题、语音。
 - 替换 `services/chat` 的存储与请求层：
-  - 删除 IndexedDB；会话与设置全部来自 chatsvr。
+  - 不使用浏览器数据库；会话与设置全部来自 chatsvr。
   - 流式渲染改为订阅 `/api/events`。
   - 编辑 / 重试 / 停止改为调用本地 API。
 - 视图模型：把 turn 树转成消息列表（Q、A 交替），版本选择器按 turn 分组。
