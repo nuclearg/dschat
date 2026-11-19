@@ -50,11 +50,22 @@ hdiutil verify "$DMG" >/dev/null
 
 if [[ -n "${APPLE_API_KEY:-}" && -n "${APPLE_API_KEY_ID:-}" && -n "${APPLE_API_ISSUER_ID:-}" ]]; then
   echo "==> notarize dmg"
-  xcrun notarytool submit "$DMG" \
-    --key "$APPLE_API_KEY" \
-    --key-id "$APPLE_API_KEY_ID" \
-    --issuer "$APPLE_API_ISSUER_ID" \
-    --wait
+  # S3 Transfer Acceleration is unreliable from mainland China; default to
+  # the regional endpoint. Set NOTARY_S3_ACCELERATION=1 to opt back in.
+  if [[ "${NOTARY_S3_ACCELERATION:-0}" == "1" ]]; then
+    xcrun notarytool submit "$DMG" \
+      --key "$APPLE_API_KEY" \
+      --key-id "$APPLE_API_KEY_ID" \
+      --issuer "$APPLE_API_ISSUER_ID" \
+      --wait
+  else
+    xcrun notarytool submit "$DMG" \
+      --key "$APPLE_API_KEY" \
+      --key-id "$APPLE_API_KEY_ID" \
+      --issuer "$APPLE_API_ISSUER_ID" \
+      --no-s3-acceleration \
+      --wait
+  fi
   xcrun stapler staple "$DMG"
   xcrun stapler validate "$DMG"
 else
