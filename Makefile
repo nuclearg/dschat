@@ -1,4 +1,4 @@
-.PHONY: build test web run-server app-macos app-windows shells android
+.PHONY: build test web run-server app-macos app-macos-dmg app-windows shells android
 
 build:
 	go build -o bin/dschat ./app/osx
@@ -15,6 +15,9 @@ run-server: build
 
 app-macos:
 	./scripts/build-macos-app.sh
+
+app-macos-dmg:
+	./scripts/build-macos-dmg.sh
 
 app-windows:
 	./scripts/build-windows-app.sh

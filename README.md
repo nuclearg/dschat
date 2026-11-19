@@ -31,12 +31,14 @@ make build            # 只编 Go；仓库里已带构建好的 dist
 make web              # 改了前端后重新构建 dist（需要 pnpm）
 make shells           # macOS .app + Windows .exe
 make app-macos        # dist/Dschat.app（需要 Xcode）
+make app-macos-dmg    # 用本机 Developer ID 证书签名并打 DMG
 make app-windows      # dist/dschat-windows-amd64.exe（需要 mingw-w64）
 make android          # dist/android/dschat-debug.apk + chatsvr.aar
 ```
 
 `make build` 产物：`bin/dschat`（macOS，默认带菜单栏）、`bin/sessionsvr`。
 `make shells` 产物：`dist/Dschat.app`（arm64/x86_64 universal）、`dist/dschat-windows-amd64.exe`。
+`make app-macos-dmg` 产物：`dist/release/dschat-macos-arm64.dmg`，使用本机钥匙串里的 Developer ID Application 证书签名。设置 `APPLE_API_KEY`、`APPLE_API_KEY_ID`、`APPLE_API_ISSUER_ID` 后会继续公证并 staple。
 `make android` 产物：`dist/android/dschat-debug.apk`、`dist/android/chatsvr.aar`（需要 Android SDK + NDK 27.2 + gomobile）。
 
 发布包：
@@ -47,7 +49,7 @@ make android          # dist/android/dschat-debug.apk + chatsvr.aar
 
 产物在 `dist/release/`：
 
-- `dschat-macos-arm64.zip`（未签名）
+- `dschat-macos-arm64.dmg`（本机 Developer ID 签名；未设置公证凭据时未公证）
 - `dschat-windows-amd64.zip`（未签名）
 - `sessionsvr-darwin-arm64.tar.gz`
 - `sessionsvr-linux-arm64.tar.gz`
@@ -55,7 +57,7 @@ make android          # dist/android/dschat-debug.apk + chatsvr.aar
 - `sessionsvr-windows-amd64.zip`
 - `SHA256SUMS`
 
-GitHub Actions 在 push main 时构建中间产物，push `v*` tag 时创建 GitHub Release。`sessionsvr` 包内带 `config.properties.example`，复制为同目录 `config.properties` 后启动。
+GitHub Actions 在 push main 时运行测试和 Web 构建；push `v*` tag 时创建 GitHub Release。GitHub-hosted macOS runner 没有本机证书，CI 的 macOS 产物仍是未签名 zip；正式 DMG 请在本机用 `make app-macos-dmg` 构建。`sessionsvr` 包内带 `config.properties.example`，复制为同目录 `config.properties` 后启动。
 
 ## 运行
 

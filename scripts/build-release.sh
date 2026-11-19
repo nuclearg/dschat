@@ -8,9 +8,8 @@ OUT=dist/release
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-echo "==> macOS app (arm64)"
-MACOS_ARCH=arm64 ./scripts/build-macos-app.sh
-ditto -c -k --norsrc --noextattr --keepParent dist/Dschat.app "$OUT/dschat-macos-arm64.zip"
+echo "==> macOS signed DMG (arm64)"
+MACOS_ARCH=arm64 ./scripts/build-macos-dmg.sh
 
 echo "==> Windows app (amd64)"
 make app-windows
