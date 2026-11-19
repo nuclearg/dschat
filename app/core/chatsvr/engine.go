@@ -278,6 +278,8 @@ func (a *App) Send(sessionID string, req SendRequest) (*model.Turn, error) {
 		cancel()
 		if err == nil && sess.SyncState != SyncSynced {
 			if applyErr := a.store.SetSessionSynced(sessionID, a.currentServerID()); applyErr == nil {
+				sess.SyncState = SyncSynced
+				sess.ServerID = a.currentServerID()
 				a.emit(map[string]any{"type": "session_updated", "sessionId": sessionID})
 			}
 		}
