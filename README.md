@@ -38,7 +38,7 @@ make android          # dist/android/dschat-debug.apk + chatsvr.aar
 
 `make build` 产物：`bin/dschat`（macOS，默认带菜单栏）、`bin/sessionsvr`。
 `make shells` 产物：`dist/Dschat.app`（arm64/x86_64 universal）、`dist/dschat-windows-amd64.exe`。
-`make app-macos-dmg` 产物：`dist/release/dschat-macos-arm64.dmg`，使用本机钥匙串里的 Developer ID Application 证书签名。设置 `APPLE_API_KEY`、`APPLE_API_KEY_ID`、`APPLE_API_ISSUER_ID` 后会继续公证并 staple。
+`make app-macos-dmg` 产物：`dist/release/dschat-macos-arm64.dmg`，使用本机钥匙串里的 Developer ID Application 证书签名。设置 `APPLE_API_KEY`、`APPLE_API_KEY_ID`、`APPLE_API_ISSUER_ID` 后会继续公证并 staple。脚本默认关闭 S3 Transfer Acceleration（国内网络更稳），需要时设 `NOTARY_S3_ACCELERATION=1`。
 `make android` 产物：`dist/android/dschat-debug.apk`、`dist/android/chatsvr.aar`（需要 Android SDK + NDK 27.2 + gomobile）。
 
 发布包：
@@ -57,7 +57,7 @@ make android          # dist/android/dschat-debug.apk + chatsvr.aar
 - `sessionsvr-windows-amd64.zip`
 - `SHA256SUMS`
 
-GitHub Actions 在 push main 时运行测试和 Web 构建；push `v*` tag 时创建 GitHub Release。GitHub-hosted macOS runner 没有本机证书，CI 的 macOS 产物仍是未签名 zip；正式 DMG 请在本机用 `make app-macos-dmg` 构建。`sessionsvr` 包内带 `config.properties.example`，复制为同目录 `config.properties` 后启动。
+GitHub Actions 在 push main / PR 时运行测试和 Web 构建；push `v*` tag 时创建 GitHub Release，并使用仓库 Secrets 中的 Developer ID 证书和 App Store Connect API Key 生成已签名、已公证的 macOS DMG。`sessionsvr` 包内带 `config.properties.example`，复制为同目录 `config.properties` 后启动。
 
 ## 运行
 
