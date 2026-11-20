@@ -7,6 +7,7 @@ import {
   IconFollowsystemOutline16,
   IconKeyOutline16,
   IconLightOutline16,
+  IconRightUpOutline14,
   IconSettingsOutline16,
   IconUploadOutline14,
 } from '../base/icons.js'
@@ -45,6 +46,9 @@ export const SettingsDialog = () => {
   const open = useSettingsDialog((state) => state.open)
   return open ? <SettingsContent /> : null
 }
+
+/** 自建数据同步服务的部署教程，放在仓库的 docs/self-host.md */
+export const DEPLOY_GUIDE_URL = 'https://github.com/nuclearg/dschat/blob/main/docs/self-host.md'
 
 const sections: { value: SettingsSection; label: TranslationKey; icon: ReactNode }[] = [
   {
@@ -616,14 +620,27 @@ const SessionsvrSetting = () => {
             />
             <span>{t('syncOfficial')}</span>
           </label>
-          <label className={styles.radio}>
-            <input
-              type="radio"
-              name="sessionsvr-mode"
-              defaultChecked
-            />
-            <span>{t('syncSelfHosted')}</span>
-          </label>
+          <div className={styles.radioRow}>
+            <label className={styles.radio}>
+              <input
+                type="radio"
+                name="sessionsvr-mode"
+                defaultChecked
+              />
+              <span>{t('syncSelfHosted')}</span>
+            </label>
+            {/* 放在 label 之外：点链接不应该顺带切换单选 */}
+            <a
+              className={styles.deployGuide}
+              href={DEPLOY_GUIDE_URL}
+              target="_blank"
+              rel="noreferrer"
+              onMouseDown={(event) => event.preventDefault()}
+            >
+              {t('syncDeployGuide')}
+              <IconRightUpOutline14 />
+            </a>
+          </div>
         </div>
         {server.paired ? (
           <div className={styles.serverStatus}>

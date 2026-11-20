@@ -102,6 +102,7 @@ export const zh = {
   syncDescription: '连接后，新会话会在设备之间同步；已有的本地会话不会自动上传。',
   syncOfficial: '连接到官方服务器（敬请期待）',
   syncSelfHosted: '连接到自建服务器',
+  syncDeployGuide: '部署指南',
   syncAddressLabel: '地址',
   syncPasswordLabel: '密码',
   syncPasswordShow: '显示',

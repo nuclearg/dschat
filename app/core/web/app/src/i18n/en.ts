@@ -108,6 +108,7 @@ export const en = {
     'Once connected, new chats sync across devices. Existing local chats are not uploaded automatically.',
   syncOfficial: 'Official server (coming soon)',
   syncSelfHosted: 'Self-hosted server',
+  syncDeployGuide: 'Deployment guide',
   syncAddressLabel: 'Address',
   syncPasswordLabel: 'Password',
   syncPasswordShow: 'Show',

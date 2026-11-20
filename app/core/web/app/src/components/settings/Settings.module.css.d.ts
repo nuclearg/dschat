@@ -36,6 +36,8 @@ declare const styles: {
   readonly "importConfirmText": string;
   readonly "deleteConfirm": string;
   readonly "deleteActions": string;
+  readonly "radioRow": string;
+  readonly "deployGuide": string;
   readonly "switch": string;
   readonly "switchOn": string;
   readonly "switchThumb": string;

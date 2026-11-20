@@ -509,6 +509,29 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* 自建服务器那一行：单选 + 部署指南链接 */
+.radioRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.deployGuide {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-brand-text);
+  text-decoration: none;
+  white-space: nowrap;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
 .serverForm {
   display: flex;
   flex-direction: column;
