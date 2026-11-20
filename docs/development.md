@@ -17,6 +17,7 @@ macOS 发布包最低支持 **macOS 13 Ventura**。当前工具链使用 Go 1.27
 
 ```sh
 make build            # Go 二进制：bin/dschat、bin/sessionsvr
+make run              # 构建当前系统包并启动（先退出已有 dschat）
 make web              # 重新构建 Web UI 到 app/core/web/dist
 make shells           # macOS .app + Windows .exe
 make app-macos        # dist/Dschat.app
@@ -25,6 +26,7 @@ make app-windows      # dist/dschat-windows-amd64.exe
 make android          # dist/android/dschat-debug.apk + chatsvr.aar
 ```
 
+`make run` 在 macOS 构建对应架构的 `.app` 并打开，在 Windows 构建 exe 并启动；启动前会结束已有的 dschat 进程。
 `make shells` 会构建 universal macOS app（arm64 + x86_64）和 Windows exe。  
 `make app-macos-dmg` 默认构建 arm64 DMG，使用本机钥匙串里的 Developer ID 证书签名。
 
