@@ -57,12 +57,12 @@ const sections: { value: SettingsSection; label: TranslationKey; icon: ReactNode
     label: 'settingDialogAsideAccountOptionLabel',
     icon: <IconKeyOutline16 />,
   },
+  { value: 'data', label: 'settingDialogAsideDataOptionLabel', icon: <IconDataOutline16 /> },
   {
     value: 'sync',
     label: 'settingDialogAsideSyncOptionLabel',
     icon: <IconCloudOutline16 />,
   },
-  { value: 'data', label: 'settingDialogAsideDataOptionLabel', icon: <IconDataOutline16 /> },
 ]
 
 const SettingsContent = () => {
@@ -687,7 +687,6 @@ const SessionsvrSetting = () => {
                 </Button>
               </div>
             </div>
-            <div className={styles.serverHint}>{t('syncPasswordHint')}</div>
           </>
         )}
         {error ? <div className={styles.error}>{error}</div> : null}

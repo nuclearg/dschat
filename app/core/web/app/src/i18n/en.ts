@@ -112,7 +112,6 @@ export const en = {
   syncPasswordLabel: 'Password',
   syncPasswordShow: 'Show',
   syncPasswordHide: 'Hide',
-  syncPasswordHint: 'A password is recommended; if empty, anyone who can reach this server can read and modify your chats.',
   syncEmptyPasswordConfirm:
     'I understand this server has no password, and I accept the data security risk it carries',
   syncEmptyPasswordContinue: 'Connect anyway',

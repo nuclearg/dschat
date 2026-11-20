@@ -106,7 +106,6 @@ export const zh = {
   syncPasswordLabel: '密码',
   syncPasswordShow: '显示',
   syncPasswordHide: '隐藏',
-  syncPasswordHint: '建议设置密码；留空时任何能访问该地址的人都可以读取和修改会话。',
   syncEmptyPasswordConfirm: '我了解此服务器没有密码保护，我理解其带来的数据安全风险',
   syncEmptyPasswordContinue: '继续连接',
   syncMissingUrl: '请填写服务器地址',
