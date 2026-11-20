@@ -37,7 +37,7 @@
 
 也可以加入 QQ 群
 
-![dschat QQ 群](docs/qq.png)
+<img src="docs/qq.png" alt="dschat QQ 群" width="320" height="320">
 
 ## 常见问题
 
