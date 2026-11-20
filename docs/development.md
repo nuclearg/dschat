@@ -71,13 +71,13 @@ NOTARY_S3_ACCELERATION=1
 - `dschat-macos-arm64.dmg`
 - `dschat-windows-amd64.exe`
 - `dschat-android-release.apk`
-- `sessionsvr-darwin-arm64.tar.gz`
-- `sessionsvr-linux-amd64.tar.gz`
-- `sessionsvr-linux-arm64.tar.gz`
-- `sessionsvr-windows-amd64.zip`
+- `sessionsvr-darwin-arm64`
+- `sessionsvr-linux-amd64`
+- `sessionsvr-linux-arm64`
+- `sessionsvr-windows-amd64.exe`
 - `SHA256SUMS`
 
-`sessionsvr` 包内包含 `config.properties.example`。
+`sessionsvr` 以单个裸二进制发布；配置文件 `config.properties` 需要自己创建。
 
 ## 发布流程
 

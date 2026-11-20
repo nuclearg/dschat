@@ -20,21 +20,12 @@ for target in darwin/arm64 linux/arm64 linux/amd64 windows/amd64; do
   goos="${target%/*}"
   goarch="${target#*/}"
   name="sessionsvr-${goos}-${goarch}"
-  stage="$OUT/$name"
-  mkdir -p "$stage"
   exe=""
   if [[ "$goos" == "windows" ]]; then
     exe=".exe"
   fi
   CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-    go build -trimpath -ldflags="-s -w" -o "$stage/sessionsvr$exe" ./sessionsvr
-  cp sessionsvr/config.properties.example "$stage/config.properties.example"
-  if [[ "$goos" == "windows" ]]; then
-    (cd "$OUT" && zip -qr "$name.zip" "$name")
-  else
-    tar -C "$OUT" -czf "$OUT/$name.tar.gz" "$name"
-  fi
-  rm -rf "$stage"
+    go build -trimpath -ldflags="-s -w" -o "$OUT/$name$exe" ./sessionsvr
 done
 
 if command -v sha256sum >/dev/null; then

@@ -20,35 +20,37 @@
 
 ## 2. 下载
 
-打开 [Releases](https://github.com/nuclearg/dschat/releases) 页面，下载对应平台的 `sessionsvr` 压缩包：
+打开 [Releases](https://github.com/nuclearg/dschat/releases) 页面，下载对应平台的单个可执行文件：
 
 | 平台 | 文件名 |
 | --- | --- |
-| Linux x86_64 | `sessionsvr-linux-amd64.tar.gz` |
-| Linux ARM64（部分 VPS、树莓派） | `sessionsvr-linux-arm64.tar.gz` |
-| macOS（Apple Silicon） | `sessionsvr-darwin-arm64.tar.gz` |
-| Windows x64 | `sessionsvr-windows-amd64.zip` |
+| Linux x86_64 | `sessionsvr-linux-amd64` |
+| Linux ARM64（部分 VPS、树莓派） | `sessionsvr-linux-arm64` |
+| macOS（Apple Silicon） | `sessionsvr-darwin-arm64` |
+| Windows x64 | `sessionsvr-windows-amd64.exe` |
 
-解压后会有两个文件：
+下载后只有一个可执行文件，没有压缩包，也不再附带示例配置。
 
+Linux / macOS 下载后赋予执行权限，并按需要改名：
+
+```bash
+chmod +x sessionsvr-linux-amd64
+mv sessionsvr-linux-amd64 sessionsvr
 ```
-sessionsvr              # Windows 下是 sessionsvr.exe
-config.properties.example
-```
+
+Windows 直接使用 `sessionsvr-windows-amd64.exe`，也可以改名为 `sessionsvr.exe`。
 
 ## 3. 配置
 
-把示例配置复制成正式配置：
+在可执行文件旁边手动创建 `config.properties`：
 
 ```bash
-cp config.properties.example config.properties
-```
-
-用编辑器打开 `config.properties`，设置密码：
-
-```properties
+cat > config.properties <<'CONFIG'
 PASSWORD=换成你自己的密码
+CONFIG
 ```
+
+也可以把配置放在任意位置，启动时用 `-config` 指定；保存后可用编辑器继续修改 `PASSWORD`。
 
 > **密码为空意味着没有任何鉴权**：能访问到这个地址的人都可以读写你的全部会话。
 > 只建议在完全可信的本机或内网环境这么做，客户端选择空密码时也会弹窗确认风险。

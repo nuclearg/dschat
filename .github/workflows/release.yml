@@ -35,27 +35,20 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Build and package sessionsvr
+      - name: Build sessionsvr
         shell: bash
         run: |
           set -euo pipefail
           name="sessionsvr-${{ matrix.goos }}-${{ matrix.goarch }}"
           exe=""
           if [[ "${{ matrix.goos }}" == "windows" ]]; then exe=".exe"; fi
-          mkdir -p "$name"
+          mkdir -p dist/release
           CGO_ENABLED=0 GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" \
-            go build -trimpath -ldflags="-s -w" -o "$name/sessionsvr$exe" ./sessionsvr
-          cp sessionsvr/config.properties.example "$name/config.properties.example"
-          if [[ "${{ matrix.goos }}" == "windows" ]]; then
-            zip -qr "$name.zip" "$name"
-          else
-            tar -czf "$name.tar.gz" "$name"
-          fi
-          rm -rf "$name"
+            go build -trimpath -ldflags="-s -w" -o "dist/release/$name$exe" ./sessionsvr
       - uses: actions/upload-artifact@v7
         with:
           name: sessionsvr-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: sessionsvr-${{ matrix.goos }}-${{ matrix.goarch }}.*
+          path: dist/release/sessionsvr-${{ matrix.goos }}-${{ matrix.goarch }}*
           retention-days: 3
 
   android:
@@ -228,4 +221,4 @@ jobs:
             - Windows: amd64 bare .exe, unsigned; SmartScreen may warn.
             - Android: release-signed APK, Android 8.0 (API 26) and newer.
             - sessionsvr: darwin-arm64, linux-arm64, linux-amd64, windows-amd64.
-            - `sessionsvr` packages include `config.properties.example`; copy it to `config.properties` next to the binary.
+            - sessionsvr is distributed as a single bare binary; create `config.properties` next to it before starting.
