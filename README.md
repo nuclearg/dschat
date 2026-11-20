@@ -45,7 +45,7 @@ Windows 包目前未做代码签名，SmartScreen 可能提示「未知发布者
 
 ### Android
 
-文件：`dschat-android-debug.apk`
+tag 构建会生成 `dschat-android-debug.apk`。如果当前 Release 没有该文件，也可以本地运行 `make android`。
 
 - 最低支持 **Android 8.0（API 26）**
 - 当前是 debug 签名，不是应用商店发布包
