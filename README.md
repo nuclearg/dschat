@@ -1,166 +1,256 @@
-# dschat
+# dschat 使用指南
 
-跨端 DeepSeek 聊天客户端：一个本地 `chatsvr` 引擎 + 内嵌 Web UI，以及一个可选的 `sessionsvr` 同步中心。桌面端与 Android/iOS 共用同一份 Go 引擎。
+dschat 是一个本地优先的 DeepSeek 桌面客户端。聊天记录、附件和 API Key 默认只保存在本机；需要多端同步时，再连接你自己搭建的 sessionsvr。
 
-当前进度：**官方 demo 前端已接到 chatsvr**，本地引擎 + sessionsvr 同步已跑通；macOS 菜单栏、Windows 托盘、Android WebView 壳均已构建。官方网关尚未完成。
+当前支持：
 
-协议和数据库结构已收敛为 **v1**：sessionsvr 的 `protocol=1`，chatsvr/sessionsvr 的 schema 均为 v1。不保留旧库迁移和旧协议兼容；升级时必须使用新数据目录或重新导入。
+- macOS 13 Ventura 及以上（Apple Silicon）
+- Windows 10 / 11（x64）
+- Android（目前提供开发版 APK，尚未上架）
+- iOS：未实现
 
-![UI](docs/ui.png)
+## 下载与安装
 
-## 现在能做什么
+从 [GitHub Releases](https://github.com/nuclearg/dschat/releases) 下载最新版本。
 
-- 本地 chatsvr：会话、turn 树、流式输出、thinking 块、联网搜索/读链接、服务端标题、附件、停止、重新生成、编辑问题、版本切换。
-- Web UI（`go:embed` 进单二进制）：上述功能的界面，Enter 发送、SSE 流式渲染、Markdown。
-- sessionsvr：密码登录、access/refresh token、会话/回合同步、会话级 owner、跨设备 claim、只读、SSE 通知。
-- 会话删除：chatsvr 物理删除（含本地附件文件），sessionsvr 软删除并广播；其他设备立即删除，离线设备重连时对账删除；7 天后 sessionsvr 硬删并清理 blob。
-- 删除所有本地对话：只删除本设备 owner 的会话，其他设备的只读会话保留；已同步的会话同时从 sessionsvr 删除。
-- 侧栏会话状态：实心云=本设备拥有，空心云=其他设备拥有；时钟角标=仅本地/等待同步，旋转角标=正在传输，叉角标=存在本地碎片，琥珀色感叹号=同步被阻塞（任何上传/下载失败：网络、密码/会员、并发限制等）；未连接时不绘制。
-- 注销设备只隐藏图标并断开同步，不丢会话；切换 sessionsvr 时旧服务器的已同步会话转为本地会话（时钟角标），不会被新服务器的列表对账删除；重连同一服务器保持原同步状态。
-- 两台设备抢同一个会话：旧设备收到 `owner_changed` 后变只读，新设备接管并把遗留 open turn 用 `aborted` 闭合。
+### macOS
 
-## 前端
+文件：`dschat-macos-arm64.dmg`
 
-- `/`：官方 chat-demo 前端（MIT，源码在 `app/core/web/app`），视觉与交互照抄官方。会话、消息、turn 树、设置全部来自 chatsvr；所有 DeepSeek 请求经 `/api/llm/*` 由 chatsvr 注入 key，浏览器不保存 key、也不直接访问任何外部 API。
-- 注意：由于后端是 turn 模型（重新生成 = 同一父节点下新增一个带 Q 副本的 turn），官方 UI 的版本选择器会显示在「问题」一侧，而不是「回答」一侧；样式一致，位置与官方 demo 略有差异。
+1. 打开 DMG。
+2. 把 `Dschat.app` 拖进「应用程序」。
+3. 启动 dschat，菜单栏会出现鲸鱼图标，并自动打开浏览器界面。
 
-## 构建
+macOS 包已使用 Developer ID 签名并完成 Apple 公证，正常情况下不需要右键打开。
 
-```sh
-make build            # 只编 Go；仓库里已带构建好的 dist
-make web              # 改了前端后重新构建 dist（需要 pnpm）
-make shells           # macOS .app + Windows .exe
-make app-macos        # dist/Dschat.app（需要 Xcode）
-make app-macos-dmg    # 用本机 Developer ID 证书签名并打 DMG
-make app-windows      # dist/dschat-windows-amd64.exe（需要 mingw-w64）
-make android          # dist/android/dschat-debug.apk + chatsvr.aar
-```
+如果启动后浏览器没有自动打开，点击菜单栏鲸鱼图标 →「打开」。
 
-`make build` 产物：`bin/dschat`（macOS，默认带菜单栏）、`bin/sessionsvr`。
-`make shells` 产物：`dist/Dschat.app`（arm64/x86_64 universal，最低 macOS 13）、`dist/dschat-windows-amd64.exe`。
-`make app-macos-dmg` 产物：`dist/release/dschat-macos-arm64.dmg`，使用本机钥匙串里的 Developer ID Application 证书签名。设置 `APPLE_API_KEY`、`APPLE_API_KEY_ID`、`APPLE_API_ISSUER_ID` 后会继续公证并 staple。脚本默认关闭 S3 Transfer Acceleration（国内网络更稳），需要时设 `NOTARY_S3_ACCELERATION=1`。
-`make android` 产物：`dist/android/dschat-debug.apk`、`dist/android/chatsvr.aar`（需要 Android SDK + NDK 27.2 + gomobile）。
+菜单栏菜单：
 
-发布包：
+- 打开
+- 配置
+- 退出
 
-```sh
-./scripts/build-release.sh
-```
+### Windows
 
-产物在 `dist/release/`：
+文件：`dschat-windows-amd64.zip`
 
-- `dschat-macos-arm64.dmg`（本机 Developer ID 签名；未设置公证凭据时未公证）
-- `dschat-windows-amd64.zip`（未签名）
-- `sessionsvr-darwin-arm64.tar.gz`
-- `sessionsvr-linux-arm64.tar.gz`
-- `sessionsvr-linux-amd64.tar.gz`
-- `sessionsvr-windows-amd64.zip`
-- `SHA256SUMS`
+1. 解压。
+2. 双击 `dschat-windows-amd64.exe`。
+3. 托盘出现鲸鱼图标，浏览器自动打开。
 
-GitHub Actions 在 push main / PR 时运行测试和 Web 构建；push `v*` tag 时创建 GitHub Release，并使用仓库 Secrets 中的 Developer ID 证书和 App Store Connect API Key 生成已签名、已公证的 macOS DMG。`sessionsvr` 包内带 `config.properties.example`，复制为同目录 `config.properties` 后启动。
+Windows 包目前未做代码签名，SmartScreen 可能提示「未知发布者」；选择「更多信息」→「仍要运行」。
 
-## 运行
+托盘菜单：打开 / 配置 / 退出。
 
-1. 启动 sessionsvr（可选）：
+### Android
 
-`sessionsvr` 要求**同目录**有 `config.properties`（可从 `sessionsvr/config.properties.example` 复制）：
+Android 目前是开发版，不随 GitHub Release 发布。
 
-```properties
-PASSWORD=
-```
-
-```sh
-./bin/sessionsvr -addr :5218 -data ~/.dschat/sessionsvr
-```
-
-- `PASSWORD` 为空时不校验密码，启动日志会打多行警告；只建议本机/可信局域网。
-- 密码非空时，客户端连接需要输入该密码；密码只在连接时验证一次，之后走 access/refresh token。
-
-2. 启动客户端：
-
-```sh
-./bin/dschat
-```
-
-默认固定监听 `127.0.0.1:5217`，显示菜单栏/托盘图标，并拉起默认浏览器。端口被占用时启动失败，不会自动改端口。`-no-open` 不打开浏览器，`-serve` 不启动托盘（纯后台，适合脚本/测试），`-port` / `-data` 可覆盖。
-
-macOS 也可以直接打开 app：
-
-```sh
-open dist/Dschat.app
-```
-
-Windows 双击 `dist/dschat-windows-amd64.exe`。托盘菜单：打开 / 配置 / 退出。
-
-Android：
+需要自行构建 `dist/android/dschat-debug.apk`，然后安装：
 
 ```sh
 adb install -r dist/android/dschat-debug.apk
-adb shell am start -n com.dschat.android/.MainActivity
 ```
 
-引擎在 App 进程内由前台 Service 持有，WebView 加载 `127.0.0.1` 的同一个 UI；附件、语音、设置都走同一套 chatsvr。
+App 内使用同一套 Web UI，聊天数据保存在 App 私有目录。
 
-3. 首次使用：右上角「设置」→ 填 DeepSeek API Key。Key 只保存在本机，不会发往 sessionsvr。
+## 第一次使用
 
-4. 需要多端同步：设置 → sessionsvr 地址 + 密码 → 连接。连接后**新建**的会话会同步；已有的本地会话不会自动上传（这是设计里待定的行为）。
+### 1. 打开 dschat
 
-## 目录
+桌面端默认监听：
 
-```
-app/core/          # 全平台共用（纯 Go）
-  chatsvr/         # turn 引擎、本地 API、同步客户端、附件
-  deepseek/        # Messages / Files 客户端
-  model/ xdb/ apierr/ httpx/
-  web/             # 内嵌前端：dist/（官方 demo 构建产物）+ app/（demo 源码）
-app/desktop/       # macOS + Windows 共用：引擎启动 + 菜单栏/托盘 + 开浏览器
-app/osx/           # darwin main
-app/win/           # Windows 入口、托盘、exe 资源
-app/mobile/        # gomobile 门面，Android + iOS 共用
-app/android/       # Kotlin + Gradle + WebView + 前台 Service
-app/ios/           # Swift + Xcode（规划）
-sessionsvr/        # 同步服务，单二进制
-docs/design.md     # 设计文档
+```text
+http://127.0.0.1:5217
 ```
 
-边界约定：`app/core` 不出现平台专属 import；`app/desktop` 只服务 mac/win；`app/mobile` 只服务 android/ios；平台目录只放入口与打包资源。
+端口固定为 5217。如果端口被其他程序占用，dschat 会启动失败，不会自动换端口。关闭占用端口的程序后重新启动。
 
-## 数据
+### 2. 填入 DeepSeek API Key
 
-- 客户端：`~/.dschat/app/`（`chatsvr.db`、`attachments/`、`api-token`）
-- 同步服务：`~/.dschat/sessionsvr/`（`sessionsvr.db`）
+首次使用会提示输入 API Key。
 
-目录权限 0700，数据库/附件 0600。`-data` 可改。
+1. 打开 [DeepSeek 开放平台](https://platform.deepseek.com/api_keys)。
+2. 登录后创建一个 API Key。
+3. 回到 dschat，粘贴 Key。
+4. 校验通过后会自动保存。
 
-## 已验证
+注意：
 
-- 用 mock DeepSeek SSE 跑通：thinking/text/signature/usage/title → 本地落库 → 推送 sessionsvr。
-- 重新生成产生兄弟 turn；切版本会改变可见路径。
-- 双设备 claim：旧设备 SSE 收到 owner 变更 → 只读；旧设备发问返回 `READ_ONLY`。
-- 同一 chatsvr 双窗口：B 的列表通过 SSE 自动出现新会话；生成中打开时 chatsvr 返回内存中的部分输出，B 能看到已生成的前缀并继续接收后续 SSE。
-- 两个 chatsvr 连同一 sessionsvr：B 的列表自动出现新会话，打开后显示等待点（只读）；A 完成后 B 自动刷新出完整回答。
-- 同一 session 两个窗口并发发 turn：chatsvr 用 `sending`/`active` 原子占位，只有一个请求返回 200，另一个返回 409 `TURN_IN_PROGRESS`；不会产生两个 open turn。
-- 附件端到端：A 上传图片 → sessionsvr 存 blob → B 同步下载 → claim → 用 B 的 key 重新上传 file_id → 继续追问成功。
-- DeepSeek ZIP 导入：图片上传、合并、重复导入产生副本、自动上传 sessionsvr 已验证。
-- 抢占者闭合遗留 open turn（`aborted`），本地与 sessionsvr 一致。
-- 上下文组装会跳过 aborted turn，且只回传 text + read_link 工具块。
-- UI E2E（Playwright + 本机 Edge）：发消息、流式渲染、设置弹窗，无 console error。
-- `go test ./...` 覆盖可见路径、上下文链、sessionsvr 的 append/claim/open-turn 规则。
+- API Key 只保存在本机 chatsvr 数据库里，不会发给 sessionsvr。
+- 账户需要有余额才能正常请求。
+- Key 等同于账户密码，不要发给别人。
 
-## 已知缺口
+也可以在右上角「设置」里更换 API Key。
 
-- API key 和 sessionsvr token 目前明文存在本地 SQLite（目录 0700），keychain 接入未做。
-- 单实例锁、macOS 签名/公证、Windows 安装包/代码签名未做；未签名的 macOS app 首次打开需要右键「打开」，Windows 可能触发 SmartScreen。
-- Android 目前只出 debug APK（全 ABI，约 141 MiB），没有 release 签名/上架；iOS 壳未做。
-- 官方 UI 已把非 owner 的会话置为只读（输入框禁用、显示等待点），但还没有「接管」按钮；消息上的重新生成等操作仍可能发出 `READ_ONLY` 请求。
-- 跨 chatsvr 的生成过程只同步「正在思考」状态，不逐 token 同步；回答在 turn 完成后才出现在另一台设备。
-- 数据管理只提供 DeepSeek 官方 ZIP 导入，不提供导出；导入会合并，重复导入产生重复会话；非图片附件只有元数据。
-- 会话删除已清理 chatsvr 本地附件文件；sessionsvr 附件随软删会话在 7 天后硬删。单附件/被替换附件的独立 GC 仍未做。
-- DeepSeek `file_id` 不跨设备同步，每台设备用自己的 key 重新上传并缓存 6 天。
-- 官方 UI 的版本选择器显示在问题一侧（turn 级映射），与官方回答侧的交互位置不同。
-- 官方共享 key / 网关 / 计费未做。
-- 不支持删除单条 turn / 单个版本，不支持「续写」（设计决定）。
+### 3. 开始聊天
 
-## 设计
+进入主界面后：
 
-完整方案见 [docs/design.md](docs/design.md)。核心模型：session 是一棵 turn 树，turn = Q + A，虚拟根 `"0"`；同步只有 `appendTurn(Q)` 和 `appendAnswer(A)` 两个动作。
+- 「开启新对话」新建会话；
+- 输入消息后按 Enter 发送；
+- 支持深度思考、智能搜索、文件上传、Markdown、代码块和 Mermaid 图表；
+- 生成过程中可以停止；
+- 回答可以重新生成；
+- 问题可以编辑；
+- 多版本回答可以在消息旁切换；
+- 支持朗读回答；
+- 设置里可以切换语言、主题和朗读音色。
+
+## 会话与同步
+
+### 会话保存在哪里
+
+默认在用户目录：
+
+```text
+~/.dschat/app/
+├── chatsvr.db
+├── attachments/
+└── api-token
+```
+
+Windows 对应用户目录下的 `.dschat\app\`。
+
+删除 App 不会自动删除这些数据。需要完全重置时，先退出 dschat，再删除该目录。
+
+### 侧栏状态图标
+
+连接 sessionsvr 后，会话标题旁会出现状态图标：
+
+| 图标 | 含义 |
+|---|---|
+| 实心云 | 本设备拥有，已同步 |
+| 空心云 | 由其他设备拥有，只读 |
+| 时钟 | 仅保存在本机，等待同步 |
+| 旋转 | 正在上传或下载 |
+| 红色叉 | 存在未同步的本地回答碎片 |
+| 琥珀色感叹号 | 同步被阻塞，请检查网络或 sessionsvr 连接 |
+
+未连接 sessionsvr 时不显示这些图标。
+
+### 多端同步（可选）
+
+dschat 的同步中心是 `sessionsvr`，需要自己部署。GitHub Release 里提供了各平台压缩包。
+
+最小启动方式：
+
+```sh
+tar -xzf sessionsvr-linux-amd64.tar.gz
+cd sessionsvr-linux-amd64
+
+cp config.properties.example config.properties
+# 编辑 config.properties，设置 PASSWORD=你的密码
+
+./sessionsvr -addr :5218 -data ~/.dschat/sessionsvr
+```
+
+然后在客户端：
+
+1. 打开「设置」；
+2. 找到 sessionsvr；
+3. 填写服务器地址，例如 `http://192.168.1.10:5218`；
+4. 输入 sessionsvr 密码；
+5. 点击「连接」。
+
+说明：
+
+- **只同步连接之后新建的会话**；已有的本地会话不会自动上传。
+- 会话同一时间只有一个 owner；其他设备打开时为只读。
+- 密码为空时任何人都能读写，公网部署必须设置密码，并使用 HTTPS。
+- 断开连接不会删除本地会话；切换服务器时，旧服务器上已同步的会话会转成仅本地状态。
+- 官方共享服务器尚未开放，目前只支持自建。
+
+公网部署建议：
+
+- sessionsvr 只监听 `127.0.0.1`；
+- 前面放 Nginx/Caddy 做 HTTPS；
+- 设置强密码；
+- 定期备份 `~/.dschat/sessionsvr`。
+
+## 导入 DeepSeek 历史对话
+
+「设置」→「数据管理」→「导入历史对话」。
+
+支持 DeepSeek 官方导出的历史对话 ZIP：
+
+1. 在 DeepSeek 网页端导出历史对话；
+2. 在 dschat 选择该 ZIP；
+3. 确认导入。
+
+注意：
+
+- 导入会与现有会话**合并**；
+- 同一个 ZIP 导入两次会产生两份重复会话；
+- 只支持官方导出格式；
+- 当前不提供导出功能。
+
+## 删除数据
+
+- 删除单个会话：会话菜单 →「删除」；本地附件会一起删除。
+- 删除所有本地对话：设置 → 数据管理 →「删除所有本地对话」。
+- 「删除所有」只删除本设备拥有的会话；其他设备拥有的只读会话保留。
+- 已同步的会话会同时从 sessionsvr 删除；sessionsvr 软删除，7 天后硬删除。
+- 需要彻底重置：退出 dschat，删除 `~/.dschat/app`。
+
+## 常见问题
+
+### 启动后浏览器没有打开
+
+点击菜单栏/托盘图标 →「打开」。
+
+### 端口 5217 被占用
+
+dschat 会直接启动失败。关闭另一个 dschat 实例或占用 5217 的程序后重试。
+
+### API Key 无效 / 余额不足
+
+- 检查 Key 是否复制完整；
+- 检查 DeepSeek 账户余额；
+- 在设置里更换 API Key。
+
+### 同步一直显示感叹号
+
+表示上传或下载被阻塞。按顺序检查：
+
+1. sessionsvr 是否在运行；
+2. 地址和密码是否正确；
+3. 网络是否能访问该地址；
+4. 服务器磁盘/数据库是否正常。
+
+重新点击「连接」会触发一次对账。
+
+### 会话变成只读
+
+该会话由另一台设备持有。只读设备不能继续追加 turn；需要回到 owner 设备继续。
+
+### Windows 提示未知发布者
+
+Windows 包尚未代码签名，属于预期行为。选择「更多信息」→「仍要运行」。
+
+### macOS 提示无法验证
+
+确认使用的是 v0.1.2 或更新版本；旧版本没有公证。新版本应显示为已公证的 Developer ID 应用。
+
+## 隐私
+
+- API Key、聊天记录、附件默认保存在本机。
+- 聊天内容会发送给 DeepSeek API 以生成回答。
+- 只有你主动连接 sessionsvr 时，会话才会同步到该服务器。
+- dschat 不会把 API Key 发送给 sessionsvr。
+
+## 更新与卸载
+
+- 更新：下载新版本，替换 App/exe；本地数据保留。
+- 卸载：删除 App/exe；如需删除数据，再删除 `~/.dschat/app`。
+- sessionsvr 数据在 `~/.dschat/sessionsvr`，与客户端数据分开。
+
+## 开发文档
+
+- [开发与构建](docs/development.md)
+- [设计文档](docs/design.md)
+
+## License
+
+MIT
