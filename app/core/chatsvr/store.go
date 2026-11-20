@@ -193,6 +193,14 @@ func (s *Store) DetachSyncedSessions(owner string) error {
 	return err
 }
 
+// SetSessionLocal turns one cloud-backed session into a local one. Used when the
+// sync service is gone (disconnected, or its config was lost) but the session is
+// still flagged as synced: local-first means it must keep working offline.
+func (s *Store) SetSessionLocal(id, owner string) error {
+	_, err := s.db.Exec(`update sessions set sync_state='local', owner_device_id=?, server_id='' where id=?`, owner, id)
+	return err
+}
+
 func (s *Store) DeleteSession(id string) error {
 	_, err := s.db.Exec(`delete from sessions where id=?`, id)
 	return err

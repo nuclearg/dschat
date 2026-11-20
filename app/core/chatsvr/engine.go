@@ -248,6 +248,15 @@ func (a *App) Send(sessionID string, req SendRequest) (*model.Turn, error) {
 	// New local sessions can start their remote lifecycle on first send. A
 	// detached local session with history stays local; uploading an existing
 	// tree is a separate operation, not an implicit side effect of one turn.
+	// 同步服务的配置可能已经没了（断开时异常退出、换了数据目录），而会话还留着
+	// synced 标记。这种情况必须就地降级成本地会话，否则发消息和删除都会被同步服务挡住。
+	if sess.SyncState == SyncSynced && a.Sync() == nil {
+		if err := a.store.SetSessionLocal(sess.ID, a.deviceID); err != nil {
+			return nil, err
+		}
+		sess.SyncState = SyncLocal
+		a.emit(map[string]any{"type": "sessions_changed"})
+	}
 	syncActive := sess.SyncState == SyncSynced
 	if !syncActive && a.Sync() != nil && len(turns) == 0 {
 		syncActive = true
@@ -422,7 +431,7 @@ func chain(turns []model.Turn, parentID string) []model.Turn {
 func (a *App) ensureRemoteSession(ctx context.Context, sess model.Session) error {
 	s := a.Sync()
 	if s == nil {
-		return apierr.New(400, "NO_SERVER", "not connected to a sessionsvr")
+		return apierr.New(400, "NO_SERVER", "尚未连接数据同步服务")
 	}
 	remote, err := s.CreateSession(ctx, sess.ID, sess.Title)
 	if err != nil {
@@ -450,7 +459,7 @@ func (a *App) Stop(sessionID, turnID string) error {
 func (a *App) Claim(sessionID string, force bool) error {
 	s := a.Sync()
 	if s == nil {
-		return apierr.New(400, "NO_SERVER", "not connected to a sessionsvr")
+		return apierr.New(400, "NO_SERVER", "尚未连接数据同步服务")
 	}
 	a.mu.Lock()
 	if at := a.active[sessionID]; at != nil {
@@ -506,7 +515,12 @@ func (a *App) currentServerID() string {
 func (a *App) SyncPending(sessionID string) error {
 	s := a.Sync()
 	if s == nil {
-		return apierr.New(400, "NO_SERVER", "not connected to a sessionsvr")
+		// 没有同步服务可推：把会话还原为本地即可，不需要用户处理。
+		if err := a.store.SetSessionLocal(sessionID, a.deviceID); err != nil {
+			return err
+		}
+		a.emit(map[string]any{"type": "sessions_changed"})
+		return nil
 	}
 	ctx, cancel := context.WithTimeout(a.baseCtx(), 60*time.Second)
 	defer cancel()
@@ -601,12 +615,13 @@ func (a *App) Delete(sessionID string) error {
 		return err
 	}
 	if sess.SyncState == SyncSynced {
-		if sess.OwnerID != a.deviceID {
-			return apierr.New(409, "READ_ONLY", "session is owned by another device")
-		}
 		s := a.Sync()
 		if s == nil {
-			return apierr.New(400, "NO_SERVER", "not connected to a sessionsvr")
+			// 同步服务已不存在：这只是本地数据，删除是纯本地操作，不该被拦住。
+			return a.deleteLocalSession(sessionID)
+		}
+		if sess.OwnerID != a.deviceID {
+			return apierr.New(409, "READ_ONLY", "session is owned by another device")
 		}
 		ctx, cancel := context.WithTimeout(a.baseCtx(), 15*time.Second)
 		defer cancel()

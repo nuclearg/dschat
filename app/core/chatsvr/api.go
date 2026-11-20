@@ -603,6 +603,13 @@ func (a *App) handleDisconnect(w http.ResponseWriter, _ *http.Request) {
 	}
 	a.setSync(nil)
 	a.clearSyncBlocked()
+	// 断开后没有任何东西再能同步，会话必须回到本地，否则会卡在「标记为已同步、
+	// 但既不能发消息也不能删除」的状态，违背本地优先。
+	if err := a.store.DetachSyncedSessions(a.deviceID); err != nil {
+		apierr.Write(w, err)
+		return
+	}
+	a.emit(map[string]any{"type": "sessions_changed"})
 	_ = a.store.SetKV("server_url", "")
 	_ = a.store.SetKV("server_access_token", "")
 	_ = a.store.SetKV("server_refresh_token", "")

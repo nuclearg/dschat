@@ -189,6 +189,11 @@ func New(cfg Config) (*App, error) {
 	}
 	a.loadSettings()
 	a.loadSync()
+	// 没有同步配置时，会话不该继续带着 synced 标记：界面会显示「已同步」，而任何
+	// 写操作都会被一个并不存在的服务挡住。启动时就一次性还原为本地会话。
+	if a.Sync() == nil {
+		_ = a.store.DetachSyncedSessions(a.deviceID)
+	}
 	return a, nil
 }
 
