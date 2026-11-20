@@ -69,6 +69,7 @@ NOTARY_S3_ACCELERATION=1
 
 - `dschat-macos-arm64.dmg`
 - `dschat-windows-amd64.zip`
+- `dschat-android-debug.apk`
 - `sessionsvr-darwin-arm64.tar.gz`
 - `sessionsvr-linux-amd64.tar.gz`
 - `sessionsvr-linux-arm64.tar.gz`
@@ -92,6 +93,7 @@ Release workflow 会：
 - 构建 Web；
 - 构建四平台 sessionsvr；
 - 构建 Windows app；
+- 构建 Android debug APK（minSdk 26）；
 - 导入仓库 Secrets 中的 Developer ID 证书；
 - 构建、签名并公证 macOS DMG；
 - 创建 GitHub Release 并上传全部包和 `SHA256SUMS`。

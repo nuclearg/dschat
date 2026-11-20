@@ -45,13 +45,19 @@ Windows 包目前未做代码签名，SmartScreen 可能提示「未知发布者
 
 ### Android
 
-Android 目前是开发版，不随 GitHub Release 发布。
+文件：`dschat-android-debug.apk`
 
-需要自行构建 `dist/android/dschat-debug.apk`，然后安装：
+- 最低支持 **Android 8.0（API 26）**
+- 当前是 debug 签名，不是应用商店发布包
+- 如果覆盖安装时提示签名不一致，先卸载旧版本
+
+安装：
 
 ```sh
-adb install -r dist/android/dschat-debug.apk
+adb install -r dschat-android-debug.apk
 ```
+
+也可以把 APK 传到手机后直接安装（需要允许安装未知来源应用）。
 
 App 内使用同一套 Web UI，聊天数据保存在 App 私有目录。
 
