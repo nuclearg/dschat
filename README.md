@@ -31,6 +31,14 @@
 部署步骤、配置说明、HTTPS、备份与升级都在
 [自建数据同步服务部署指南](docs/self-host.md) 里。
 
+## 意见和建议
+
+通过 [GutHub Issues](https://github.com/nuclearg/dschat/issues) 提交
+
+也可以加入 QQ 群
+
+[](https://github.com/nuclearg/dschat/blob/main/docs/qq.png?raw=true)
+
 ## 常见问题
 
 ### 是免费的吗？
