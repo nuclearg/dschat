@@ -37,7 +37,7 @@
 
 也可以加入 QQ 群
 
-[](https://github.com/nuclearg/dschat/blob/main/docs/qq.png?raw=true)
+![dschat QQ 群](docs/qq.png)
 
 ## 常见问题
 
