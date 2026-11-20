@@ -321,15 +321,19 @@ func (a *App) clearSyncBlocked() {
 	a.setSyncBlockedDetail("", "")
 }
 
-// noteSyncError is deliberately a catch-all: any failed upload/download is a
-// sync block until a later operation succeeds. Local validation errors do not
-// reach this function.
+// noteSyncError blocks only transport, server, auth and quota failures.
+// Ownership changes and idempotent append conflicts are normal state
+// transitions; they must not light up the global sync error badge.
 func (a *App) noteSyncError(err error) {
 	if err == nil || errors.Is(err, context.Canceled) {
 		return
 	}
 	var remote *RemoteError
 	if errors.As(err, &remote) {
+		switch remote.Code {
+		case "NotOwner", "ParentOpen", "TurnExists", "AnswerExists", "OpenTurn":
+			return
+		}
 		reason := "sync"
 		switch remote.Code {
 		case "Unauthorized", "TokenExpired", "InvalidPassword":

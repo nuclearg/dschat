@@ -95,32 +95,40 @@ func TestSyncBlockedTransferState(t *testing.T) {
 	}
 }
 
-func TestAnySyncErrorBlocks(t *testing.T) {
+func TestSyncErrorClassification(t *testing.T) {
 	app, err := New(Config{DataDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer app.Close()
 
-	app.noteSyncError(io.ErrUnexpectedEOF)
-	if got := app.syncBlocked(); got != "network" {
-		t.Fatalf("network block = %q", got)
+	tests := []struct {
+		name       string
+		err        error
+		wantBlock  string
+		wantDetail string
+	}{
+		{name: "network", err: io.ErrUnexpectedEOF, wantBlock: "network"},
+		{name: "limit", err: &RemoteError{Code: "StorageLimit", Message: "full"}, wantBlock: "limit", wantDetail: "StorageLimit: full"},
+		{name: "local validation", err: apierr.New(400, "EMPTY", "question is empty")},
+		{name: "not owner", err: &RemoteError{Code: "NotOwner", Message: "not owner"}},
+		{name: "parent open", err: &RemoteError{Code: "ParentOpen", Message: "parent is open"}},
+		{name: "turn exists", err: &RemoteError{Code: "TurnExists", Message: "turn exists"}},
+		{name: "answer exists", err: &RemoteError{Code: "AnswerExists", Message: "answer exists"}},
+		{name: "open turn", err: &RemoteError{Code: "OpenTurn", Message: "open turn"}},
 	}
-	app.clearSyncBlocked()
-	app.noteSyncError(&RemoteError{Code: "StorageLimit", Message: "full"})
-	if got := app.syncBlocked(); got != "limit" {
-		t.Fatalf("limit block = %q", got)
-	}
-	app.clearSyncBlocked()
-	app.noteSyncError(apierr.New(400, "EMPTY", "question is empty"))
-	if got := app.syncBlocked(); got != "" {
-		t.Fatalf("local validation should not block: %q", got)
-	}
-	app.noteSyncError(&RemoteError{Code: "NotOwner", Message: "not owner"})
-	if got := app.syncBlocked(); got != "sync" {
-		t.Fatalf("remote block = %q", got)
-	}
-	if got := app.syncBlockedDetail(); got != "NotOwner: not owner" {
-		t.Fatalf("block detail = %q", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app.clearSyncBlocked()
+			app.noteSyncError(tt.err)
+			if got := app.syncBlocked(); got != tt.wantBlock {
+				t.Fatalf("block = %q, want %q", got, tt.wantBlock)
+			}
+			if tt.wantDetail != "" {
+				if got := app.syncBlockedDetail(); got != tt.wantDetail {
+					t.Fatalf("detail = %q, want %q", got, tt.wantDetail)
+				}
+			}
+		})
 	}
 }
