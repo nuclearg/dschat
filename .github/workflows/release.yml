@@ -155,6 +155,8 @@ jobs:
             echo "KEYCHAIN_PATH=$keychain"
             echo "APPLE_API_KEY=$RUNNER_TEMP/private_keys/AuthKey_${APPLE_API_KEY_ID}.p8"
           } >> "$GITHUB_ENV"
+      - name: Install dmgbuild
+        run: python3 -m pip install --user dmgbuild
       - name: Build, sign, and notarize arm64 DMG
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}

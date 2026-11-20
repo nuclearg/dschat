@@ -7,6 +7,7 @@
 - Go 1.26 或更新版本
 - Node.js 22 + pnpm 9（只在修改 Web UI 时需要）
 - macOS 构建：Xcode Command Line Tools
+- DMG 布局：`python3 -m pip install --user dmgbuild`
 - Windows 构建：`mingw-w64`
 - Android 构建：Android SDK、NDK 27.2、gomobile
 
@@ -119,7 +120,7 @@ APPLE_API_ISSUER_ID
 
 ## Android 签名
 
-本地签名使用 `~/.android-keys/dschat-release.properties`，其中指向 release keystore。  
+本地签名使用 `~/.android-keys/dschat-release.properties`，其中指向 release keystore。
 CI 使用以下 Secrets 导入 keystore：
 
 ```text

@@ -18,8 +18,10 @@ dschat 是一个本地优先的 DeepSeek 桌面客户端。聊天记录、附件
 文件：`dschat-macos-arm64.dmg`
 
 1. 打开 DMG。
-2. 把 `Dschat.app` 拖进「应用程序」。
+2. 按窗口里的箭头提示，把 `Dschat.app` 拖进 `Applications` 文件夹。
 3. 启动 dschat，菜单栏会出现鲸鱼图标，并自动打开浏览器界面。
+
+不要直接从 DMG 里运行；拖进 Applications 后再启动。
 
 macOS 包已使用 Developer ID 签名并完成 Apple 公证，正常情况下不需要右键打开。
 

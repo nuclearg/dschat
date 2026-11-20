@@ -34,14 +34,27 @@ codesign --force --options runtime --timestamp \
 codesign --verify --deep --strict --verbose=2 "$APP"
 
 echo "==> build dmg"
-STAGE="$(mktemp -d)"
-trap 'rm -rf "$STAGE"' EXIT
-mkdir -p "$STAGE/dschat"
-cp -R "$APP" "$STAGE/dschat/"
-ln -s /Applications "$STAGE/dschat/Applications"
 mkdir -p dist/release
-hdiutil create -volname "dschat" -srcfolder "$STAGE/dschat" \
-  -ov -format UDZO "$DMG" >/dev/null
+rm -f "$DMG"
+if python3 -c 'import dmgbuild' >/dev/null 2>&1; then
+  APP_ABS="$(cd "$(dirname "$APP")" && pwd)/$(basename "$APP")"
+  BG_ABS="$(pwd)/packaging/macos/dmg-background.png"
+  python3 -m dmgbuild \
+    -s packaging/macos/dmg-settings.py \
+    -Dapp="$APP_ABS" \
+    -Dbackground="$BG_ABS" \
+    -Dvolume_name=dschat \
+    dschat "$DMG"
+else
+  echo "dmgbuild not found; using a plain DMG with an Applications symlink" >&2
+  STAGE="$(mktemp -d)"
+  trap 'rm -rf "$STAGE"' EXIT
+  mkdir -p "$STAGE/dschat"
+  cp -R "$APP" "$STAGE/dschat/"
+  ln -s /Applications "$STAGE/dschat/Applications"
+  hdiutil create -volname "dschat" -srcfolder "$STAGE/dschat" \
+    -ov -format UDZO "$DMG" >/dev/null
+fi
 
 echo "==> sign dmg"
 codesign --force --timestamp --sign "$IDENTITY" "$DMG"
