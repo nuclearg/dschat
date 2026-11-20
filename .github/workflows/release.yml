@@ -86,17 +86,32 @@ jobs:
           go install golang.org/x/mobile/cmd/gobind@v0.0.0-20261117202452-47699113848a
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           gomobile init
-      - name: Build debug APK
+      - name: Import Android signing key
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/dschat-release.jks"
+          chmod 600 "$RUNNER_TEMP/dschat-release.jks"
+          {
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/dschat-release.jks"
+            echo "ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD"
+            echo "ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS"
+            echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+      - name: Build release APK
         run: |
           set -euo pipefail
           export ANDROID_HOME="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
           ./scripts/build-android.sh
-          cp dist/android/dschat-debug.apk dist/android/dschat-android-debug.apk
       - uses: actions/upload-artifact@v7
         with:
           name: dschat-android
-          path: dist/android/dschat-android-debug.apk
+          path: dist/android/dschat-android-release.apk
           retention-days: 3
 
   macos-app:
@@ -210,6 +225,6 @@ jobs:
           body: |
             - macOS: arm64 DMG, Developer ID signed and notarized.
             - Windows: amd64, unsigned; SmartScreen may warn.
-            - Android: debug APK, Android 8.0 (API 26) and newer.
+            - Android: release-signed APK, Android 8.0 (API 26) and newer.
             - sessionsvr: darwin-arm64, linux-arm64, linux-amd64, windows-amd64.
             - `sessionsvr` packages include `config.properties.example`; copy it to `config.properties` next to the binary.

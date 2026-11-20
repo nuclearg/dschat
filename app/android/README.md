@@ -106,15 +106,19 @@ mkdir -p app/android/app/libs
 gomobile bind -target=android -androidapi 26 \
   -o app/android/app/libs/chatsvr.aar ./app/mobile
 
-# 2) Debug APK. local.properties is gitignored and machine-specific.
+# 2) Release APK. local.properties is gitignored and machine-specific.
+export ANDROID_KEYSTORE_PATH="$HOME/.android-keys/dschat-release.jks"
+export ANDROID_KEYSTORE_PASSWORD=...
+export ANDROID_KEY_ALIAS=dschat
+export ANDROID_KEY_PASSWORD=...
 cd app/android
 printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
-./gradlew :app:assembleDebug
+./gradlew :app:assembleRelease
 
 # 3) Collect deliverables.
 cd ../..
 mkdir -p dist/android
-cp app/android/app/build/outputs/apk/debug/app-debug.apk dist/android/dschat-debug.apk
+cp app/android/app/build/outputs/apk/release/app-release.apk dist/android/dschat-android-release.apk
 cp app/android/app/libs/chatsvr.aar dist/android/chatsvr.aar
 ```
 

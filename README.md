@@ -45,16 +45,16 @@ Windows 包目前未做代码签名，SmartScreen 可能提示「未知发布者
 
 ### Android
 
-tag 构建会生成 `dschat-android-debug.apk`。如果当前 Release 没有该文件，也可以本地运行 `make android`。
+tag 构建会生成 `dschat-android-release.apk`。如果当前 Release 没有该文件，也可以本地运行 `make android`。
 
 - 最低支持 **Android 8.0（API 26）**
-- 当前是 debug 签名，不是应用商店发布包
-- 如果覆盖安装时提示签名不一致，先卸载旧版本
+- 使用 dschat 专用 release key 签名，可直接在官网分发
+- 后续版本必须使用同一个 key，才能覆盖升级
 
 安装：
 
 ```sh
-adb install -r dschat-android-debug.apk
+adb install -r dschat-android-release.apk
 ```
 
 也可以把 APK 传到手机后直接安装（需要允许安装未知来源应用）。

@@ -69,7 +69,7 @@ NOTARY_S3_ACCELERATION=1
 
 - `dschat-macos-arm64.dmg`
 - `dschat-windows-amd64.zip`
-- `dschat-android-debug.apk`
+- `dschat-android-release.apk`
 - `sessionsvr-darwin-arm64.tar.gz`
 - `sessionsvr-linux-amd64.tar.gz`
 - `sessionsvr-linux-arm64.tar.gz`
@@ -93,7 +93,7 @@ Release workflow 会：
 - 构建 Web；
 - 构建四平台 sessionsvr；
 - 构建 Windows app；
-- 构建 Android debug APK（minSdk 26）；
+- 构建并签名 Android release APK（minSdk 26）；
 - 导入仓库 Secrets 中的 Developer ID 证书；
 - 构建、签名并公证 macOS DMG；
 - 创建 GitHub Release 并上传全部包和 `SHA256SUMS`。
@@ -116,6 +116,20 @@ APPLE_API_ISSUER_ID
 - `.github/workflows/test.yml`：可复用的 Go 测试和前端检查。
 - `.github/workflows/build-web.yml`：可复用的 Web 构建。
 - `.github/workflows/release.yml`：tag 发布，也支持手动触发构建（手动触发不会创建 Release）。
+
+## Android 签名
+
+本地签名使用 `~/.android-keys/dschat-release.properties`，其中指向 release keystore。  
+CI 使用以下 Secrets 导入 keystore：
+
+```text
+ANDROID_KEYSTORE_BASE64
+ANDROID_KEYSTORE_PASSWORD
+ANDROID_KEY_ALIAS
+ANDROID_KEY_PASSWORD
+```
+
+产物为 `dist/android/dschat-android-release.apk`。没有本地 keystore 时，脚本回退到 debug APK，仅用于开发。
 
 ## 测试
 

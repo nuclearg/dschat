@@ -24,9 +24,32 @@ fi
 mkdir -p app/android/app/libs dist/android
 echo "sdk.dir=$ANDROID_HOME" > app/android/local.properties
 
-gomobile bind -target=android -androidapi 26 -o app/android/app/libs/chatsvr.aar ./app/mobile
-(cd app/android && ./gradlew --no-daemon assembleDebug)
+# Reuse the release keystore for local adb installs when the caller has not
+# supplied one explicitly. CI injects the same variables from GitHub Secrets.
+LOCAL_KEY_PROPS="$HOME/.android-keys/dschat-release.properties"
+if [[ -z "${ANDROID_KEYSTORE_PATH:-}" && -f "$LOCAL_KEY_PROPS" ]]; then
+  ANDROID_KEYSTORE_PATH="$(sed -n 's/^storeFile=//p' "$LOCAL_KEY_PROPS" | head -1)"
+  ANDROID_KEYSTORE_PASSWORD="$(sed -n 's/^storePassword=//p' "$LOCAL_KEY_PROPS" | head -1)"
+  ANDROID_KEY_ALIAS="$(sed -n 's/^keyAlias=//p' "$LOCAL_KEY_PROPS" | head -1)"
+  ANDROID_KEY_PASSWORD="$(sed -n 's/^keyPassword=//p' "$LOCAL_KEY_PROPS" | head -1)"
+  export ANDROID_KEYSTORE_PATH ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD
+fi
 
-cp app/android/app/build/outputs/apk/debug/app-debug.apk dist/android/dschat-debug.apk
-cp app/android/app/libs/chatsvr.aar dist/android/chatsvr.aar
-echo "built dist/android/dschat-debug.apk and dist/android/chatsvr.aar"
+gomobile bind -target=android -androidapi 26 -o app/android/app/libs/chatsvr.aar ./app/mobile
+
+if [[ -n "${ANDROID_KEYSTORE_PATH:-}" ]]; then
+  (cd app/android && ./gradlew --no-daemon assembleRelease)
+  APK="dist/android/dschat-android-release.apk"
+  cp app/android/app/build/outputs/apk/release/app-release.apk "$APK"
+  APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f 2>/dev/null | sort -V | tail -1 || true)"
+  if [[ -n "$APKSIGNER" ]]; then
+    "$APKSIGNER" verify --print-certs "$APK" >/dev/null
+  fi
+  cp app/android/app/libs/chatsvr.aar dist/android/chatsvr.aar
+  echo "built $APK (release-signed) and dist/android/chatsvr.aar"
+else
+  (cd app/android && ./gradlew --no-daemon assembleDebug)
+  cp app/android/app/build/outputs/apk/debug/app-debug.apk dist/android/dschat-debug.apk
+  cp app/android/app/libs/chatsvr.aar dist/android/chatsvr.aar
+  echo "built dist/android/dschat-debug.apk (debug) and dist/android/chatsvr.aar"
+fi

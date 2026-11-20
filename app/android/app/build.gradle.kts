@@ -19,12 +19,25 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    val signingStore = System.getenv("ANDROID_KEYSTORE_PATH")
+    if (!signingStore.isNullOrBlank()) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(signingStore)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             isMinifyEnabled = false
         }
         release {
             isMinifyEnabled = false
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
 
