@@ -84,8 +84,8 @@ NOTARY_S3_ACCELERATION=1
 推 `v*` tag 会自动创建 GitHub Release：
 
 ```sh
-git tag v0.1.4
-git push origin v0.1.4
+git tag v0.1.0
+git push origin v0.1.0
 ```
 
 Release workflow 会：

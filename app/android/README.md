@@ -7,7 +7,7 @@ waits for the loopback URL and displays it in a `WebView`.
 | Item | Value |
 | --- | --- |
 | Package / applicationId | `com.dschat.android` |
-| Version | 0.1.4 (versionCode 5) |
+| Version | 0.1.0 (versionCode 1) |
 | Launcher activity | `com.dschat.android.MainActivity` |
 | Engine service | `com.dschat.android.EngineService` (`specialUse` foreground type) |
 | minSdk / compileSdk / targetSdk | 26 / 37 / 37 |
