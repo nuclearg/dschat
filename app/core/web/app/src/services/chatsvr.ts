@@ -107,6 +107,8 @@ export type ApiSession = {
   syncState?: string
   transferState?: TransferState
   hasFragment?: boolean
+  blockedReason?: string
+  blockedDetail?: string
 }
 
 export type ApiSessionView = ApiSession & {
@@ -270,6 +272,8 @@ export const toSummary = (s: ApiSession): SessionSummary => ({
   syncState: s.syncState,
   transferState: s.transferState,
   hasFragment: s.hasFragment,
+  blockedReason: s.blockedReason,
+  blockedDetail: s.blockedDetail,
 })
 
 /** Turn tree -> the demo's message tree. One turn becomes a Q/A pair. */

@@ -92,8 +92,9 @@ type App struct {
 	langMu   sync.RWMutex
 	language string
 
-	blockMu sync.RWMutex
-	blocked string
+	blockMu       sync.RWMutex
+	blocked       string
+	blockedDetail string
 
 	ctx context.Context
 
@@ -169,6 +170,7 @@ func New(cfg Config) (*App, error) {
 		a.language = lang
 	}
 	a.blocked, _ = st.KV("sync_blocked")
+	a.blockedDetail, _ = st.KV("sync_blocked_detail")
 	a.deviceID, err = a.ensureKV("device_id", model.NewID())
 	if err != nil {
 		st.Close()
@@ -291,20 +293,32 @@ func (a *App) syncBlocked() string {
 	return a.blocked
 }
 
+func (a *App) syncBlockedDetail() string {
+	a.blockMu.RLock()
+	defer a.blockMu.RUnlock()
+	return a.blockedDetail
+}
+
 func (a *App) setSyncBlocked(reason string) {
+	a.setSyncBlockedDetail(reason, "")
+}
+
+func (a *App) setSyncBlockedDetail(reason, detail string) {
 	a.blockMu.Lock()
-	if a.blocked == reason {
+	if a.blocked == reason && a.blockedDetail == detail {
 		a.blockMu.Unlock()
 		return
 	}
 	a.blocked = reason
+	a.blockedDetail = detail
 	a.blockMu.Unlock()
 	_ = a.store.SetKV("sync_blocked", reason)
+	_ = a.store.SetKV("sync_blocked_detail", detail)
 	a.emit(map[string]any{"type": "sessions_changed"})
 }
 
 func (a *App) clearSyncBlocked() {
-	a.setSyncBlocked("")
+	a.setSyncBlockedDetail("", "")
 }
 
 // noteSyncError is deliberately a catch-all: any failed upload/download is a
@@ -332,12 +346,16 @@ func (a *App) noteSyncError(err error) {
 				reason = "limit"
 			}
 		}
-		a.setSyncBlocked(reason)
+		detail := remote.Code
+		if remote.Message != "" {
+			detail += ": " + remote.Message
+		}
+		a.setSyncBlockedDetail(reason, detail)
 		return
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, context.DeadlineExceeded) {
-		a.setSyncBlocked("network")
+		a.setSyncBlockedDetail("network", err.Error())
 	}
 }
 

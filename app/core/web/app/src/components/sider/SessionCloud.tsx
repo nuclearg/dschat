@@ -43,8 +43,29 @@ export const SessionCloud = ({ session, paired, localDeviceId }: Props) => {
               ? t('sessionCloudLocal')
               : t(owned ? 'sessionCloudOwnedSynced' : 'sessionCloudRemote')
 
+  const blockedReason = (reason: string | undefined) => {
+    switch (reason) {
+      case 'auth':
+        return t('sessionCloudBlockedAuth')
+      case 'limit':
+        return t('sessionCloudBlockedLimit')
+      case 'network':
+        return t('sessionCloudBlockedNetwork')
+      case 'server':
+        return t('sessionCloudBlockedServer')
+      case 'sync':
+        return t('sessionCloudBlockedSync')
+      default:
+        return ''
+    }
+  }
+  const tooltip =
+    state === 'blocked'
+      ? [label, blockedReason(session.blockedReason), session.blockedDetail].filter(Boolean).join('\n')
+      : label
+
   return (
-    <span className={styles.status} role="img" aria-label={label} title={label}>
+    <span className={styles.status} role="img" aria-label={tooltip} title={tooltip}>
       <svg width={16} height={16} viewBox="0 0 16 16" fill="none" aria-hidden="true">
         <path
           d={CloudPath}

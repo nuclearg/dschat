@@ -126,4 +126,6 @@ export type SessionSummary = Pick<Session, 'id' | 'title' | 'createdAt' | 'updat
   syncState?: string
   transferState?: 'synced' | 'local' | 'pending' | 'uploading' | 'blocked' | 'fragment'
   hasFragment?: boolean
+  blockedReason?: string
+  blockedDetail?: string
 }

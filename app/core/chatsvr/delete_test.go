@@ -120,4 +120,7 @@ func TestAnySyncErrorBlocks(t *testing.T) {
 	if got := app.syncBlocked(); got != "sync" {
 		t.Fatalf("remote block = %q", got)
 	}
+	if got := app.syncBlockedDetail(); got != "NotOwner: not owner" {
+		t.Fatalf("block detail = %q", got)
+	}
 }

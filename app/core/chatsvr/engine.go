@@ -29,6 +29,11 @@ type SessionView struct {
 	HasOpenTurn   bool   `json:"hasOpenTurn"`
 	TransferState string `json:"transferState"`
 	HasFragment   bool   `json:"hasFragment"`
+	// BlockedReason/BlockedDetail are populated only while transferState is
+	// "blocked"; they carry the last transport/server/auth/limit error for the
+	// tooltip.
+	BlockedReason string `json:"blockedReason,omitempty"`
+	BlockedDetail string `json:"blockedDetail,omitempty"`
 }
 
 type SessionDetail struct {
@@ -128,12 +133,20 @@ func (a *App) Bootstrap() (map[string]any, error) {
 		if s.SyncState == SyncSynced {
 			pending, _ = a.store.HasPending(s.ID)
 		}
+		state := a.transferState(s, hasFragment, pending)
+		reason, detail := "", ""
+		if state == "blocked" {
+			reason = a.syncBlocked()
+			detail = a.syncBlockedDetail()
+		}
 		views = append(views, SessionView{
 			Session:       s,
 			ReadOnly:      s.SyncState == SyncSynced && s.OwnerID != a.deviceID,
 			HasOpenTurn:   open,
-			TransferState: a.transferState(s, hasFragment, pending),
+			TransferState: state,
 			HasFragment:   hasFragment,
+			BlockedReason: reason,
+			BlockedDetail: detail,
 		})
 	}
 	set := a.Settings()
