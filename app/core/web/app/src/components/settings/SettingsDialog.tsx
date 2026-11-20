@@ -555,9 +555,9 @@ const useHistoryImport = () => {
 const SessionsvrSetting = () => {
   const t = useTranslate()
   const server = useChatStore((state) => state.server)
-  const [mode, setMode] = useState<'official' | 'self'>(server.paired ? 'self' : 'official')
   const [url, setUrl] = useState(server.url)
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   // 空密码不在表单里勾选，改成点连接时弹窗确认风险
   const [confirmEmpty, setConfirmEmpty] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -612,9 +612,7 @@ const SessionsvrSetting = () => {
             <input
               type="radio"
               name="sessionsvr-mode"
-              checked={mode === 'official'}
-              disabled={server.paired}
-              onChange={() => setMode('official')}
+              disabled
             />
             <span>{t('syncOfficial')}</span>
           </label>
@@ -622,8 +620,7 @@ const SessionsvrSetting = () => {
             <input
               type="radio"
               name="sessionsvr-mode"
-              checked={mode === 'self'}
-              onChange={() => setMode('self')}
+              defaultChecked
             />
             <span>{t('syncSelfHosted')}</span>
           </label>
@@ -636,35 +633,54 @@ const SessionsvrSetting = () => {
               {t('syncDisconnect')}
             </Button>
           </div>
-        ) : mode === 'official' ? (
-          <div className={styles.serverHint}>{t('syncOfficialTodo')}</div>
         ) : (
           <>
             <div className={styles.serverForm}>
-              <label className={styles.serverInput}>
-                <input
-                  value={url}
-                  onChange={(event) => setUrl(event.target.value)}
-                  placeholder={t('syncAddressPlaceholder')}
-                  spellCheck={false}
-                  autoComplete="off"
-                />
-              </label>
-              <label className={styles.serverInput}>
-                <input
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  placeholder={t('syncPasswordPlaceholder')}
-                  type="password"
-                  autoComplete="current-password"
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
-                      event.preventDefault()
-                      submit()
-                    }
-                  }}
-                />
-              </label>
+              <div className={styles.serverField}>
+                <label className={styles.serverFieldLabel} htmlFor="sessionsvr-url">
+                  {t('syncAddressLabel')}
+                </label>
+                <div className={styles.serverInput}>
+                  <input
+                    id="sessionsvr-url"
+                    value={url}
+                    onChange={(event) => setUrl(event.target.value)}
+                    aria-label={t('syncAddressLabel')}
+                    spellCheck={false}
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
+              <div className={styles.serverField}>
+                <label className={styles.serverFieldLabel} htmlFor="sessionsvr-password">
+                  {t('syncPasswordLabel')}
+                </label>
+                <div className={styles.serverInput}>
+                  <input
+                    id="sessionsvr-password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    type={showPassword ? 'text' : 'password'}
+                    aria-label={t('syncPasswordLabel')}
+                    autoComplete="current-password"
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                        event.preventDefault()
+                        submit()
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className={styles.serverPasswordToggle}
+                    aria-label={t(showPassword ? 'syncPasswordHide' : 'syncPasswordShow')}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => setShowPassword((visible) => !visible)}
+                  >
+                    {t(showPassword ? 'syncPasswordHide' : 'syncPasswordShow')}
+                  </button>
+                </div>
+              </div>
               <div className={styles.serverActions}>
                 <Button variant="primary" size="m" onClick={submit} disabled={busy}>
                   {busy ? t('syncConnecting') : t('syncConnect')}

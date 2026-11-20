@@ -107,10 +107,11 @@ export const en = {
   syncDescription:
     'Once connected, new chats sync across devices. Existing local chats are not uploaded automatically.',
   syncOfficial: 'Official server (coming soon)',
-  syncOfficialTodo: 'The official server is coming soon. Use a self-hosted server for now.',
   syncSelfHosted: 'Self-hosted server',
-  syncAddressPlaceholder: 'http://192.168.1.10:5218',
-  syncPasswordPlaceholder: 'Data sync service password',
+  syncAddressLabel: 'Address',
+  syncPasswordLabel: 'Password',
+  syncPasswordShow: 'Show',
+  syncPasswordHide: 'Hide',
   syncPasswordHint: 'A password is recommended; if empty, anyone who can reach this server can read and modify your chats.',
   syncEmptyPasswordConfirm:
     'I understand this server has no password, and I accept the data security risk it carries',
