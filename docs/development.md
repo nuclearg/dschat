@@ -69,7 +69,7 @@ NOTARY_S3_ACCELERATION=1
 产物在 `dist/release/`：
 
 - `dschat-macos-arm64.dmg`
-- `dschat-windows-amd64.zip`
+- `dschat-windows-amd64.exe`
 - `dschat-android-release.apk`
 - `sessionsvr-darwin-arm64.tar.gz`
 - `sessionsvr-linux-amd64.tar.gz`

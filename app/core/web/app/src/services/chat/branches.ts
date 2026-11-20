@@ -73,33 +73,6 @@ export const buildMessageVersions = (
   return unchanged ? previous : versions
 }
 
-/** 新消息挂在指定父节点下，并选择新分支；原节点与其后续对话保持不变。 */
-export const appendBranch = (
-  original: Session,
-  parentId: string | null,
-  messages: Message[]
-): Session => {
-  const session = normalizeSession(original)
-  const first = messages[0]
-  if (!first) {
-    return session
-  }
-  return {
-    ...session,
-    rootMessageId: parentId === null ? first.id : session.rootMessageId,
-    messages: [
-      ...session.messages.map((message) =>
-        message.id === parentId ? { ...message, selectedChildId: first.id } : message
-      ),
-      ...messages.map((message, index) => ({
-        ...message,
-        parentId: messages[index - 1]?.id ?? parentId,
-        selectedChildId: messages[index + 1]?.id,
-      })),
-    ],
-  }
-}
-
 /** 仅允许切换当前路径上某一节点的兄弟版本，恢复该版本已选中的后续分支。 */
 export const selectVersion = (original: Session, messageId: string): Session => {
   const session = normalizeSession(original)

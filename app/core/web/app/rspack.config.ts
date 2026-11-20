@@ -82,7 +82,19 @@ export const createConfig = ({
     }),
     new rspack.DefinePlugin({ __API_ORIGIN__: JSON.stringify(apiOrigin) }),
     new rspack.CopyRspackPlugin({
-      patterns: [{ from: path.resolve(root, 'LICENSE'), to: 'LICENSE', toType: 'file' }],
+      patterns: [
+        { from: path.resolve(root, 'LICENSE'), to: 'LICENSE', toType: 'file' },
+        // favicon 必须保持固定文件名，供 index.html 直接引用
+        ...[
+          ['favicon.ico', 'favicon.ico'],
+          ['favicon-32.png', 'favicon-32.png'],
+          ['apple-touch-icon.png', 'apple-touch-icon.png'],
+        ].map(([from, to]) => ({
+          from: path.resolve(root, 'src/assets', from),
+          to,
+          toType: 'file',
+        })),
+      ],
     }),
   ],
   performance: { hints: false },

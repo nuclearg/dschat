@@ -3,7 +3,9 @@ import { useRef, useState, type ReactNode } from 'react'
 import {
   IconDarkOutline16,
   IconDataOutline16,
+  IconCloudOutline16,
   IconFollowsystemOutline16,
+  IconKeyOutline16,
   IconLightOutline16,
   IconSettingsOutline16,
   IconUploadOutline14,
@@ -17,8 +19,10 @@ import { disconnectServer, loginServer, useChatStore } from '../../services/chat
 import { regionCodes, getRegionName, provinces } from '../../services/location.js'
 import {
   isChineseBrowser,
+  setAutoStart,
   setLocale,
   setLocation,
+  setSafetyCheck,
   setThemePreference,
   setTtsVoice,
   useSettings,
@@ -42,13 +46,6 @@ export const SettingsDialog = () => {
   return open ? <SettingsContent /> : null
 }
 
-const AccountIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
-    <circle cx="8" cy="5.2" r="2.6" />
-    <path d="M3.2 13.2c.5-2.6 2.4-4 4.8-4s4.3 1.4 4.8 4" strokeLinecap="round" />
-  </svg>
-)
-
 const sections: { value: SettingsSection; label: TranslationKey; icon: ReactNode }[] = [
   {
     value: 'general',
@@ -58,7 +55,12 @@ const sections: { value: SettingsSection; label: TranslationKey; icon: ReactNode
   {
     value: 'account',
     label: 'settingDialogAsideAccountOptionLabel',
-    icon: <AccountIcon />,
+    icon: <IconKeyOutline16 />,
+  },
+  {
+    value: 'sync',
+    label: 'settingDialogAsideSyncOptionLabel',
+    icon: <IconCloudOutline16 />,
   },
   { value: 'data', label: 'settingDialogAsideDataOptionLabel', icon: <IconDataOutline16 /> },
 ]
@@ -109,15 +111,18 @@ const SettingsContent = () => {
               <LocaleSetting />
               <TtsVoiceSetting />
               <LocationSetting />
+              <SafetyCheckSetting />
+              <AutoStartSetting />
             </>
           ) : section === 'account' ? (
             <>
               <ApiKeyField editor={apiKeyEditor} />
               {isMobile ? <ApiKeyConfirm editor={apiKeyEditor} /> : null}
             </>
+          ) : section === 'sync' ? (
+            <SessionsvrSetting />
           ) : (
             <>
-              <SessionsvrSetting />
               <ImportHistory historyImport={historyImport} disabled={historyBusy} />
               <SettingCell
                 label={t('deleteAllSessions')}
@@ -336,6 +341,61 @@ const TtsVoiceSetting = () => {
   )
 }
 
+/**
+ * 内容安全审核开关：关闭后请求体不再携带 safety_check，
+ * 交给服务端按其默认策略处理；下一次请求起生效。
+ */
+const SafetyCheckSetting = () => {
+  const t = useTranslate()
+  const safetyCheck = useSettings((state) => state.safetyCheck)
+  return (
+    <SettingCell
+      label={t('settingsSafetyCheck')}
+      description={t('settingsSafetyCheckDescription')}
+      action={
+        <button
+          type="button"
+          role="switch"
+          aria-checked={safetyCheck}
+          aria-label={t('settingsSafetyCheck')}
+          className={clsx(styles.switch, safetyCheck && styles.switchOn)}
+          onClick={() => setSafetyCheck(!safetyCheck)}
+        >
+          <span className={styles.switchThumb} />
+        </button>
+      }
+    />
+  )
+}
+
+/** 登录时后台启动；仅 macOS/Windows 显示。 */
+const AutoStartSetting = () => {
+  const t = useTranslate()
+  const autoStart = useSettings((state) => state.autoStart)
+  const supported = useSettings((state) => state.autoStartSupported)
+  if (!supported) {
+    return null
+  }
+  return (
+    <SettingCell
+      label={t('settingsAutoStart')}
+      description={t('settingsAutoStartDescription')}
+      action={
+        <button
+          type="button"
+          role="switch"
+          aria-checked={autoStart}
+          aria-label={t('settingsAutoStart')}
+          className={clsx(styles.switch, autoStart && styles.switchOn)}
+          onClick={() => setAutoStart(!autoStart)}
+        >
+          <span className={styles.switchThumb} />
+        </button>
+      }
+    />
+  )
+}
+
 /** 覆盖导入的二次确认，叠在设置弹窗上 */
 const ImportConfirm = ({
   historyImport,
@@ -491,28 +551,21 @@ const useHistoryImport = () => {
   return { file, busy, status, select: setFile, cancel: () => setFile(null), confirm }
 }
 
-/** sessionsvr 连接：官方服务器暂未开放，自建服务器填地址 + 密码。 */
+/** 数据同步服务：官方服务器敬请期待，自建服务器填地址 + 密码。 */
 const SessionsvrSetting = () => {
   const t = useTranslate()
   const server = useChatStore((state) => state.server)
   const [mode, setMode] = useState<'official' | 'self'>(server.paired ? 'self' : 'official')
   const [url, setUrl] = useState(server.url)
   const [password, setPassword] = useState('')
-  const [emptyAcknowledged, setEmptyAcknowledged] = useState(false)
+  // 空密码不在表单里勾选，改成点连接时弹窗确认风险
+  const [confirmEmpty, setConfirmEmpty] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
   const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
   const connect = async () => {
-    if (!url.trim()) {
-      setError(t('syncMissingUrl'))
-      return
-    }
-    if (!password.trim() && !emptyAcknowledged) {
-      setError(t('syncEmptyPasswordRequired'))
-      return
-    }
     setBusy(true)
     setError('')
     try {
@@ -523,6 +576,18 @@ const SessionsvrSetting = () => {
     } finally {
       setBusy(false)
     }
+  }
+
+  const submit = () => {
+    if (!url.trim()) {
+      setError(t('syncMissingUrl'))
+      return
+    }
+    if (!password.trim()) {
+      setConfirmEmpty(true)
+      return
+    }
+    void connect()
   }
 
   const disconnectNow = async () => {
@@ -538,82 +603,106 @@ const SessionsvrSetting = () => {
   }
 
   return (
-    <div className={styles.cell}>
-      <div className={styles.label}>{t('syncTitle')}</div>
-      <div className={styles.description}>{t('syncDescription')}</div>
-      <div className={styles.radioGroup}>
-        <label className={styles.radio}>
-          <input
-            type="radio"
-            name="sessionsvr-mode"
-            checked={mode === 'official'}
-            disabled={server.paired}
-            onChange={() => setMode('official')}
-          />
-          <span>{t('syncOfficial')}</span>
-        </label>
-        <label className={styles.radio}>
-          <input
-            type="radio"
-            name="sessionsvr-mode"
-            checked={mode === 'self'}
-            onChange={() => setMode('self')}
-          />
-          <span>{t('syncSelfHosted')}</span>
-        </label>
-      </div>
-      {server.paired ? (
-        <div className={styles.serverStatus}>
-          <strong>{t('syncConnected')}</strong>
-          <span>{server.url}</span>
-          <Button variant="outlined" size="s" onClick={() => void disconnectNow()} disabled={busy}>
-            {t('syncDisconnect')}
-          </Button>
+    <>
+      <div className={styles.cell}>
+        <div className={styles.label}>{t('syncTitle')}</div>
+        <div className={styles.description}>{t('syncDescription')}</div>
+        <div className={styles.radioGroup}>
+          <label className={styles.radio}>
+            <input
+              type="radio"
+              name="sessionsvr-mode"
+              checked={mode === 'official'}
+              disabled={server.paired}
+              onChange={() => setMode('official')}
+            />
+            <span>{t('syncOfficial')}</span>
+          </label>
+          <label className={styles.radio}>
+            <input
+              type="radio"
+              name="sessionsvr-mode"
+              checked={mode === 'self'}
+              onChange={() => setMode('self')}
+            />
+            <span>{t('syncSelfHosted')}</span>
+          </label>
         </div>
-      ) : mode === 'official' ? (
-        <div className={styles.serverHint}>{t('syncOfficialTodo')}</div>
-      ) : (
-        <>
-          <div className={styles.serverForm}>
-            <label className={styles.serverInput}>
-              <input
-                value={url}
-                onChange={(event) => setUrl(event.target.value)}
-                placeholder={t('syncAddressPlaceholder')}
-                spellCheck={false}
-                autoComplete="off"
-              />
-            </label>
-            {!password.trim() ? (
-              <label className={styles.radio}>
+        {server.paired ? (
+          <div className={styles.serverStatus}>
+            <strong>{t('syncConnected')}</strong>
+            <span>{server.url}</span>
+            <Button variant="outlined" size="s" onClick={() => void disconnectNow()} disabled={busy}>
+              {t('syncDisconnect')}
+            </Button>
+          </div>
+        ) : mode === 'official' ? (
+          <div className={styles.serverHint}>{t('syncOfficialTodo')}</div>
+        ) : (
+          <>
+            <div className={styles.serverForm}>
+              <label className={styles.serverInput}>
                 <input
-                  type="checkbox"
-                  checked={emptyAcknowledged}
-                  onChange={(event) => setEmptyAcknowledged(event.target.checked)}
+                  value={url}
+                  onChange={(event) => setUrl(event.target.value)}
+                  placeholder={t('syncAddressPlaceholder')}
+                  spellCheck={false}
+                  autoComplete="off"
                 />
-                <span>{t('syncEmptyPasswordCheck')}</span>
               </label>
-            ) : null}
-            <label className={styles.serverInput}>
-              <input
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder={t('syncPasswordPlaceholder')}
-                type="password"
-                autoComplete="current-password"
-              />
-            </label>
-            <div className={styles.serverActions}>
-              <Button variant="primary" size="m" onClick={() => void connect()} disabled={busy}>
-                {busy ? t('syncConnecting') : t('syncConnect')}
+              <label className={styles.serverInput}>
+                <input
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder={t('syncPasswordPlaceholder')}
+                  type="password"
+                  autoComplete="current-password"
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                      event.preventDefault()
+                      submit()
+                    }
+                  }}
+                />
+              </label>
+              <div className={styles.serverActions}>
+                <Button variant="primary" size="m" onClick={submit} disabled={busy}>
+                  {busy ? t('syncConnecting') : t('syncConnect')}
+                </Button>
+              </div>
+            </div>
+            <div className={styles.serverHint}>{t('syncPasswordHint')}</div>
+          </>
+        )}
+        {error ? <div className={styles.error}>{error}</div> : null}
+      </div>
+      {confirmEmpty ? (
+        <Modal
+          title={t('syncTitle')}
+          className={styles.importConfirm}
+          onClose={() => setConfirmEmpty(false)}
+          footer={
+            <div className={styles.deleteActions}>
+              <Button variant="outlined" autoFocus onClick={() => setConfirmEmpty(false)}>
+                {t('cancel')}
+              </Button>
+              <Button
+                variant="primary"
+                disabled={busy}
+                onClick={() => {
+                  setConfirmEmpty(false)
+                  void connect()
+                }}
+              >
+                {t('syncEmptyPasswordContinue')}
               </Button>
             </div>
-          </div>
-          <div className={styles.serverHint}>{t('syncPasswordHint')}</div>
-        </>
-      )}
-      {error ? <div className={styles.error}>{error}</div> : null}
-    </div>
+          }
+        >
+          <div className={styles.importConfirmText}>{t('syncEmptyPasswordConfirm')}</div>
+        </Modal>
+      ) : null}
+    </>
   )
 }
 

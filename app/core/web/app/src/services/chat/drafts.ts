@@ -147,15 +147,3 @@ export const clearSentDraft = (sessionId: string | null) => {
   updateDraft(sessionId, () => EMPTY_DRAFT)
 }
 
-/** 删除会话或替换历史成功后，释放尚未发送的草稿及上传任务。 */
-export const clearDraft = (sessionId: string | null) => {
-  getDraft(sessionId).attachments.forEach((attachment) => releaseAttachment(attachment, true))
-  updateDraft(sessionId, () => EMPTY_DRAFT)
-}
-
-export const clearAllDrafts = () => {
-  for (const draft of useDrafts.getState().drafts.values()) {
-    draft.attachments.forEach((attachment) => releaseAttachment(attachment, true))
-  }
-  useDrafts.setState({ drafts: new Map() })
-}

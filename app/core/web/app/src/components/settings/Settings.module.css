@@ -575,3 +575,42 @@
   line-height: 18px;
   color: var(--dsw-alias-label-tertiary);
 }
+
+/* 布尔开关（通用设置） */
+.switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 38px;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 11px;
+  background: var(--dsw-alias-border-l3);
+  cursor: pointer;
+  transition: background-color 0.16s ease;
+
+  &:focus-visible {
+    outline: 2px solid var(--dsw-alias-brand-primary);
+    outline-offset: 2px;
+  }
+}
+
+.switchOn {
+  background: var(--dsw-alias-brand-primary);
+}
+
+.switchThumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-primary-foreground);
+  transition: transform 0.16s ease;
+}
+
+.switchOn .switchThumb {
+  transform: translateX(16px);
+}

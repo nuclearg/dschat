@@ -26,6 +26,7 @@ import {
 import { useSettings } from '../settings.js'
 import { useUploads } from '../attachments.js'
 import { getVisibleMessages } from './branches.js'
+import { createLatestReminder } from './latestReminder.js'
 import { clearSentDraft, getDraft, prepareDraftMessage } from './drafts.js'
 import type { AssistantMessage, ReplyBlock, Session, SessionSummary } from './types.js'
 
@@ -145,6 +146,9 @@ export const initChat = (): Promise<void> => {
         apiKey: boot.settings.hasKey ? 'managed-by-chatsvr' : null,
         thinking: boot.settings.thinking,
         search: boot.settings.search,
+        safetyCheck: boot.settings.safetyCheck,
+        autoStart: boot.settings.autoStart,
+        autoStartSupported: boot.settings.autoStartSupported,
       })
       const sessions = boot.sessions.map(toSummary).sort((a, b) => b.updatedAt - a.updatedAt)
       set({ sessions, server: boot.server, ready: true, initError: false })
@@ -229,6 +233,12 @@ export const stopReply = (sessionId: string) => {
   })
 }
 
+/** 当前时刻的 latest_reminder：日期、星期、地点、平台、语言，与官方 demo 一致。 */
+const currentReminder = () => {
+  const { locale, location } = useSettings.getState()
+  return createLatestReminder({ locale, location })
+}
+
 export const sendMessage = (targetSessionId: string | null): boolean => {
   if (get().importingHistory || !get().ready) {return false}
   const prepared = prepareDraftMessage(getDraft(targetSessionId), useUploads.getState().tasks)
@@ -244,7 +254,8 @@ export const sendMessage = (targetSessionId: string | null): boolean => {
       const turn = await sendTurn(
         sessionId,
         prepared.text,
-        prepared.files.map((file) => file.serverId)
+        prepared.files.map((file) => file.serverId),
+        currentReminder()
       )
       clearSentDraft(targetSessionId)
       markStreaming(sessionId, turn.id)
@@ -265,7 +276,7 @@ export const regenerateReply = (sessionId: string, messageId?: string) => {
   if (!id || id.startsWith(Q_PREFIX)) {return}
   void (async () => {
     try {
-      const turn = await retryTurn(sessionId, id)
+      const turn = await retryTurn(sessionId, id, currentReminder())
       markStreaming(sessionId, turn.id)
       await refreshSessions()
       await loadSession(sessionId, true)
@@ -280,7 +291,7 @@ export const editMessage = (sessionId: string, messageId: string, content: strin
   if (!turnId) {return false}
   void (async () => {
     try {
-      const turn = await editTurn(sessionId, turnId, content)
+      const turn = await editTurn(sessionId, turnId, content, currentReminder())
       markStreaming(sessionId, turn.id)
       await refreshSessions()
       await loadSession(sessionId, true)

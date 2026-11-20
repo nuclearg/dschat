@@ -35,13 +35,12 @@ macOS 包已使用 Developer ID 签名并完成 Apple 公证，正常情况下�
 
 ### Windows
 
-文件：`dschat-windows-amd64.zip`
+文件：`dschat-windows-amd64.exe`
 
-1. 解压。
-2. 双击 `dschat-windows-amd64.exe`。
-3. 托盘出现鲸鱼图标，浏览器自动打开。
+1. 下载后直接双击 `dschat-windows-amd64.exe`。
+2. 托盘出现鲸鱼图标，浏览器自动打开。
 
-Windows 包目前未做代码签名，SmartScreen 可能提示「未知发布者」；选择「更多信息」→「仍要运行」。
+Windows 包目前是单个未签名 exe，SmartScreen 可能提示「未知发布者」；选择「更多信息」→「仍要运行」。
 
 托盘菜单：打开 / 配置 / 退出。
 
@@ -91,6 +90,8 @@ http://127.0.0.1:5217
 - Key 等同于账户密码，不要发给别人。
 
 也可以在右上角「设置」里更换 API Key。
+
+macOS 和 Windows 的「设置 → 通用」里还有「开机启动」。开启后，dschat 会在登录系统时后台启动，不自动打开浏览器。
 
 ### 3. 开始聊天
 

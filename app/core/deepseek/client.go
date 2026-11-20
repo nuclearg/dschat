@@ -50,15 +50,16 @@ func (e *APIError) Error() string {
 }
 
 type Request struct {
-	Model     string
-	System    string
-	Messages  []any
-	Thinking  bool
-	Search    bool
-	ReadURL   bool
-	Title     bool
-	HasFiles  bool
-	MaxTokens int
+	Model       string
+	System      string
+	Messages    []any
+	Thinking    bool
+	Search      bool
+	SafetyCheck bool
+	ReadURL     bool
+	Title       bool
+	HasFiles    bool
+	MaxTokens   int
 }
 
 type Event struct {
@@ -85,22 +86,6 @@ type wireUsage struct {
 	} `json:"server_tool_use"`
 }
 
-func (u *wireUsage) toModel() *model.Usage {
-	if u == nil {
-		return nil
-	}
-	m := &model.Usage{
-		InputTokens:              u.InputTokens,
-		OutputTokens:             u.OutputTokens,
-		CacheCreationInputTokens: u.CacheCreationInputTokens,
-		CacheReadInputTokens:     u.CacheReadInputTokens,
-	}
-	if u.ServerToolUse != nil {
-		m.WebSearchRequests = u.ServerToolUse.WebSearchRequests
-	}
-	return m
-}
-
 func (c *Client) buildBody(req Request) ([]byte, error) {
 	tools := []any{}
 	if req.ReadURL || req.Search {
@@ -114,13 +99,16 @@ func (c *Client) buildBody(req Request) ([]byte, error) {
 		thinking = "enabled"
 	}
 	body := map[string]any{
-		"model":        req.Model,
-		"system":       req.System,
-		"messages":     req.Messages,
-		"thinking":     map[string]any{"type": thinking},
-		"tools":        tools,
-		"safety_check": map[string]any{"level": "high"},
-		"stream":       true,
+		"model":    req.Model,
+		"system":   req.System,
+		"messages": req.Messages,
+		"thinking": map[string]any{"type": thinking},
+		"tools":    tools,
+		"stream":   true,
+	}
+	// safety_check 仅在设置中开启时下发；关闭时整个字段都不出现，交回服务端默认处理。
+	if req.SafetyCheck {
+		body["safety_check"] = map[string]any{"level": "high"}
 	}
 	if req.Title {
 		body["title"] = map[string]any{"enabled": true}

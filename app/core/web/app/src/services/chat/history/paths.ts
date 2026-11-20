@@ -4,8 +4,6 @@ export const MANIFEST_PATH = 'manifest.json'
 export const USER_PATH = 'user.json'
 export const INDEX_PATH = 'chat_session_index.json'
 
-export const sessionPath = (sessionId: string) => `chat_sessions/${sessionId}.json`
-
 /** 会话自己的图片目录，带结尾斜杠 */
 export const sessionFilesDir = (sessionId: string) => `chat_sessions/${sessionId}_files/`
 

@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"dschat/app/core/deepseek"
@@ -23,29 +24,67 @@ import (
 
 const DefaultPort = 5217
 
+// PortInUseError 表示固定端口已被别的程序占用。桌面层据此弹出对话框，
+// 并在弹窗里指出占用端口的是哪个程序（常见情况是另一个 dschat）。
+type PortInUseError struct {
+	Port int
+	Err  error
+}
+
+func (e *PortInUseError) Error() string {
+	// 直接复用底层 bind 报错，避免日志里出现重复的 listen 前缀。
+	if e.Err != nil {
+		return e.Err.Error()
+	}
+	return fmt.Sprintf("listen 127.0.0.1:%d: address already in use", e.Port)
+}
+
+func (e *PortInUseError) Unwrap() error { return e.Err }
+
+// isAddrInUse 同时按 errno 与文案判断，兼容不同平台的 bind 报错措辞。
+func isAddrInUse(err error) bool {
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "address already in use") ||
+		strings.Contains(msg, "only one usage of each socket address")
+}
+
+// AutoStart is implemented by desktop shells that can register the app with
+// the operating system's login items. Mobile and headless builds leave it nil.
+type AutoStart interface {
+	Enabled() (bool, error)
+	Set(enabled bool) error
+}
+
 type Config struct {
 	DataDir    string
 	Port       int
 	DeviceName string
+	AutoStart  AutoStart
 }
 
 type Settings struct {
-	APIKey     string
-	BaseURL    string
-	Model      string
-	Thinking   bool
-	Search     bool
-	DeviceName string
+	APIKey   string
+	BaseURL  string
+	Model    string
+	Thinking bool
+	Search   bool
+	// SafetyCheck 控制请求体是否携带 safety_check；默认开启，只有显式关闭时才不下发。
+	SafetyCheck bool
+	DeviceName  string
 }
 
 type App struct {
-	cfg      Config
-	store    *Store
-	hub      *hub
-	deviceID string
-	device   string
-	token    string
-	port     int
+	cfg       Config
+	store     *Store
+	hub       *hub
+	autoStart AutoStart
+	deviceID  string
+	device    string
+	token     string
+	port      int
 
 	setMu sync.RWMutex
 	set   Settings
@@ -119,6 +158,7 @@ func New(cfg Config) (*App, error) {
 		cfg:         cfg,
 		store:       st,
 		hub:         newHub(),
+		autoStart:   cfg.AutoStart,
 		active:      map[string]*activeTurn{},
 		sending:     map[string]bool{},
 		partials:    map[string]*model.Answer{},
@@ -197,12 +237,14 @@ func (a *App) loadSettings() {
 	a.setMu.Lock()
 	defer a.setMu.Unlock()
 	a.set = Settings{
-		APIKey:     get("api_key"),
-		BaseURL:    orDefault(get("base_url"), deepseek.DefaultBaseURL),
-		Model:      orDefault(get("model"), "deepseek-flash"),
-		Thinking:   get("thinking") == "1",
-		Search:     get("search") == "1",
-		DeviceName: orDefault(get("device_name"), a.device),
+		APIKey:   get("api_key"),
+		BaseURL:  orDefault(get("base_url"), deepseek.DefaultBaseURL),
+		Model:    orDefault(get("model"), "deepseek-flash"),
+		Thinking: get("thinking") == "1",
+		Search:   get("search") == "1",
+		// 未写入过该设置时视为开启；只有显式存成 "0" 才是关闭。
+		SafetyCheck: get("safety_check") != "0",
+		DeviceName:  orDefault(get("device_name"), a.device),
 	}
 }
 
@@ -344,6 +386,9 @@ func (a *App) Start(ctx context.Context) error {
 
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", a.cfg.Port))
 	if err != nil {
+		if isAddrInUse(err) {
+			return &PortInUseError{Port: a.cfg.Port, Err: err}
+		}
 		return fmt.Errorf("listen 127.0.0.1:%d: %w", a.cfg.Port, err)
 	}
 	a.port = ln.Addr().(*net.TCPAddr).Port

@@ -21,6 +21,11 @@ type Settings = {
   ttsVoice: TtsVoice
   thinking: boolean
   search: boolean
+  /** 请求是否携带 safety_check；由 chatsvr 管理，默认开启 */
+  safetyCheck: boolean
+  /** 是否注册为登录启动；仅桌面端支持，由 chatsvr 管理 */
+  autoStart: boolean
+  autoStartSupported: boolean
   siderCollapsed: boolean
   /** 展开的侧边栏宽度（px） */
   siderWidth: number
@@ -102,6 +107,9 @@ export const useSettings = create<Settings>(() => ({
   ttsVoice: initialTtsVoice(),
   thinking: false,
   search: false,
+  safetyCheck: true,
+  autoStart: false,
+  autoStartSupported: false,
   siderCollapsed: read(KEYS.siderCollapsed) === 'true',
   siderWidth: initialSiderWidth(),
 }))
@@ -141,6 +149,26 @@ export const setThinking = (thinking: boolean) => {
 export const setSearch = (search: boolean) => {
   useSettings.setState({ search })
   void saveSettings({ search }).catch(() => {})
+}
+
+/** 保存到 chatsvr：下一次请求起生效，进行中的回答不受影响。 */
+export const setSafetyCheck = (safetyCheck: boolean) => {
+  useSettings.setState({ safetyCheck })
+  void saveSettings({ safetyCheck }).catch(() => {})
+}
+
+/** 开机启动由操作系统管理；保存失败时恢复开关，避免界面和系统状态不一致。 */
+export const setAutoStart = (autoStart: boolean) => {
+  const previous = useSettings.getState().autoStart
+  useSettings.setState({ autoStart })
+  void saveSettings({ autoStart })
+    .then((view) => {
+      useSettings.setState({
+        autoStart: view.autoStart,
+        autoStartSupported: view.autoStartSupported,
+      })
+    })
+    .catch(() => useSettings.setState({ autoStart: previous }))
 }
 
 export const setSiderCollapsed = (siderCollapsed: boolean) => {

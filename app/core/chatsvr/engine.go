@@ -19,6 +19,8 @@ type SendRequest struct {
 	AttachmentIDs []string `json:"attachmentIds,omitempty"`
 	RetryOf       string   `json:"retryOf,omitempty"`
 	EditOf        string   `json:"editOf,omitempty"`
+	// LatestReminder 由前端按当前日期与地点生成，格式为「日期,星期,地点,Web,语言」。
+	LatestReminder string `json:"latestReminder,omitempty"`
 }
 
 type SessionView struct {
@@ -135,6 +137,7 @@ func (a *App) Bootstrap() (map[string]any, error) {
 		})
 	}
 	set := a.Settings()
+	autoStart, autoStartSupported := a.autoStartView()
 	server := map[string]any{"paired": false, "url": "", "deviceId": ""}
 	if s := a.Sync(); s != nil {
 		server["paired"] = true
@@ -144,12 +147,15 @@ func (a *App) Bootstrap() (map[string]any, error) {
 	return map[string]any{
 		"device": map[string]any{"id": a.deviceID, "name": a.device},
 		"settings": map[string]any{
-			"hasKey":     set.APIKey != "",
-			"baseUrl":    set.BaseURL,
-			"model":      set.Model,
-			"thinking":   set.Thinking,
-			"search":     set.Search,
-			"deviceName": set.DeviceName,
+			"hasKey":             set.APIKey != "",
+			"baseUrl":            set.BaseURL,
+			"model":              set.Model,
+			"thinking":           set.Thinking,
+			"search":             set.Search,
+			"safetyCheck":        set.SafetyCheck,
+			"autoStart":          autoStart,
+			"autoStartSupported": autoStartSupported,
+			"deviceName":         set.DeviceName,
 		},
 		"server":   server,
 		"sessions": views,
@@ -305,7 +311,7 @@ func (a *App) Send(sessionID string, req SendRequest) (*model.Turn, error) {
 	a.mu.Unlock()
 	registered = true
 	a.emit(map[string]any{"type": "turn_started", "sessionId": sessionID, "turnId": t.ID})
-	go a.generate(ctx, *sess, t, at)
+	go a.generate(ctx, *sess, t, at, req.LatestReminder)
 	return &t, nil
 }
 
@@ -638,7 +644,7 @@ func (a *App) deleteLocalSession(sessionID string) error {
 	return nil
 }
 
-func (a *App) generate(ctx context.Context, sess model.Session, t model.Turn, at *activeTurn) {
+func (a *App) generate(ctx context.Context, sess model.Session, t model.Turn, at *activeTurn, reminder string) {
 	defer func() {
 		a.mu.Lock()
 		if cur := a.active[sess.ID]; cur == at {
@@ -660,7 +666,7 @@ func (a *App) generate(ctx context.Context, sess model.Session, t model.Turn, at
 		a.failTurn(sess, t, errors.New("尚未配置 API Key"))
 		return
 	}
-	messages, hasFiles, err := a.buildMessages(ctx, client, sess, t)
+	messages, hasFiles, err := a.buildMessages(ctx, client, sess, t, reminder)
 	if err != nil {
 		a.failTurn(sess, t, err)
 		return
@@ -668,14 +674,15 @@ func (a *App) generate(ctx context.Context, sess model.Session, t model.Turn, at
 	startedAt := time.Now()
 	lastPartial := time.Time{}
 	events, err := client.Stream(ctx, deepseek.Request{
-		Model:    settings.Model,
-		System:   deepseek.SystemPrompt,
-		Messages: messages,
-		Thinking: settings.Thinking,
-		Search:   settings.Search,
-		ReadURL:  true,
-		Title:    true,
-		HasFiles: hasFiles,
+		Model:       settings.Model,
+		System:      deepseek.SystemPrompt,
+		Messages:    messages,
+		Thinking:    settings.Thinking,
+		Search:      settings.Search,
+		SafetyCheck: settings.SafetyCheck,
+		ReadURL:     true,
+		Title:       true,
+		HasFiles:    hasFiles,
 	})
 	if err != nil {
 		a.failTurn(sess, t, err)
@@ -762,16 +769,17 @@ func (a *App) generate(ctx context.Context, sess model.Session, t model.Turn, at
 		blocks = blocks[:len(blocks)-1]
 	}
 	ans := model.Answer{
-		Status:     status,
-		StopReason: stopReason,
-		Blocks:     blocks,
-		Usage:      usage,
-		Model:      settings.Model,
-		Thinking:   settings.Thinking,
-		Search:     settings.Search,
-		Title:      title,
-		DurationMs: time.Since(startedAt).Milliseconds(),
-		CreatedAt:  model.NowMS(),
+		Status:         status,
+		StopReason:     stopReason,
+		Blocks:         blocks,
+		Usage:          usage,
+		Model:          settings.Model,
+		Thinking:       settings.Thinking,
+		Search:         settings.Search,
+		LatestReminder: reminder,
+		Title:          title,
+		DurationMs:     time.Since(startedAt).Milliseconds(),
+		CreatedAt:      model.NowMS(),
 	}
 	state := SyncLocal
 	if sess.SyncState == SyncSynced {
@@ -843,7 +851,7 @@ func strOf(v any) string {
 	return s
 }
 
-func (a *App) buildMessages(ctx context.Context, client *deepseek.Client, sess model.Session, t model.Turn) ([]any, bool, error) {
+func (a *App) buildMessages(ctx context.Context, client *deepseek.Client, sess model.Session, t model.Turn, reminder string) ([]any, bool, error) {
 	turns, err := a.store.Turns(sess.ID)
 	if err != nil {
 		return nil, false, err
@@ -851,6 +859,16 @@ func (a *App) buildMessages(ctx context.Context, client *deepseek.Client, sess m
 	hist := chain(turns, t.ParentTurnID)
 	messages := []any{}
 	hasFiles := false
+	// latest_reminder 是独立角色，放在对应提问之前；只在首次出现或内容变化时插入，
+	// 与官方 demo 一致，避免每轮重复同一条。
+	previous := ""
+	appendReminder := func(value string) {
+		if value == "" || value == previous {
+			return
+		}
+		messages = append(messages, map[string]any{"role": "latest_reminder", "content": value})
+		previous = value
+	}
 	for _, h := range hist {
 		if !usableAnswer(h.Answer) {
 			continue
@@ -866,6 +884,8 @@ func (a *App) buildMessages(ctx context.Context, client *deepseek.Client, sess m
 		if ac == nil {
 			continue
 		}
+		// 用这一轮当时的快照，而不是用当前时间重算。
+		appendReminder(h.Answer.LatestReminder)
 		messages = append(messages, map[string]any{"role": "user", "content": uc})
 		messages = append(messages, map[string]any{"role": "assistant", "content": ac})
 		hasFiles = hasFiles || files
@@ -877,6 +897,7 @@ func (a *App) buildMessages(ctx context.Context, client *deepseek.Client, sess m
 	if uc == nil {
 		return nil, false, apierr.New(400, "EMPTY", "question is empty")
 	}
+	appendReminder(reminder)
 	messages = append(messages, map[string]any{"role": "user", "content": uc})
 	hasFiles = hasFiles || files
 	return messages, hasFiles, nil

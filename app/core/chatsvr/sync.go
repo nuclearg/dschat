@@ -330,11 +330,6 @@ func (s *Sync) CreateSession(ctx context.Context, id, title string) (*model.Sess
 	return &out.Session, nil
 }
 
-func (s *Sync) GetSessionMeta(ctx context.Context, id string) (*model.Session, error) {
-	_, sess, err := s.GetSession(ctx, id)
-	return sess, err
-}
-
 func (s *Sync) GetSession(ctx context.Context, id string) ([]model.Turn, *model.Session, error) {
 	var out struct {
 		Session model.Session `json:"session"`

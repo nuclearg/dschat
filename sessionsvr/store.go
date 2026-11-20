@@ -336,20 +336,6 @@ on conflict(id) do update set name=excluded.name, platform=excluded.platform, to
 	return d, token, nil
 }
 
-func (s *Store) DeviceByToken(token string) (*Device, error) {
-	var d Device
-	err := s.db.QueryRow(`select id,name,platform,created_at from devices where token_hash=?`, hashToken(token)).
-		Scan(&d.ID, &d.Name, &d.Platform, &d.CreatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, apierr.New(401, "UNAUTHORIZED", "invalid token")
-	}
-	if err != nil {
-		return nil, err
-	}
-	_, _ = s.db.Exec(`update devices set last_seen_at=? where id=?`, model.NowMS(), d.ID)
-	return &d, nil
-}
-
 func (s *Store) CreateSession(id, title, owner string) (*model.Session, error) {
 	if id == "" {
 		id = model.NewID()
@@ -702,8 +688,4 @@ func (s *Store) CleanupExpired(cutoff int64) (int, error) {
 		removed++
 	}
 	return removed, nil
-}
-
-func (s *Store) TouchDevice(id string) {
-	_, _ = s.db.Exec(`update devices set last_seen_at=? where id=?`, model.NowMS(), id)
 }

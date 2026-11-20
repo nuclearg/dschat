@@ -194,15 +194,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64 zip
       - name: Build unsigned amd64 app
-        run: |
-          set -euo pipefail
-          ./scripts/build-windows-app.sh
-          mkdir -p dist/release
-          (cd dist && zip -qr release/dschat-windows-amd64.zip dschat-windows-amd64.exe)
+        run: ./scripts/build-windows-app.sh
       - uses: actions/upload-artifact@v7
         with:
           name: dschat-windows-amd64
-          path: dist/release/dschat-windows-amd64.zip
+          path: dist/dschat-windows-amd64.exe
           retention-days: 3
 
   release:
@@ -229,7 +225,7 @@ jobs:
           generate_release_notes: true
           body: |
             - macOS: arm64 DMG, Developer ID signed and notarized.
-            - Windows: amd64, unsigned; SmartScreen may warn.
+            - Windows: amd64 bare .exe, unsigned; SmartScreen may warn.
             - Android: release-signed APK, Android 8.0 (API 26) and newer.
             - sessionsvr: darwin-arm64, linux-arm64, linux-amd64, windows-amd64.
             - `sessionsvr` packages include `config.properties.example`; copy it to `config.properties` next to the binary.

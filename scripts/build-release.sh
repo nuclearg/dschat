@@ -13,7 +13,7 @@ MACOS_ARCH=arm64 ./scripts/build-macos-dmg.sh
 
 echo "==> Windows app (amd64)"
 make app-windows
-(cd dist && zip -qr "release/dschat-windows-amd64.zip" dschat-windows-amd64.exe)
+cp dist/dschat-windows-amd64.exe "$OUT/dschat-windows-amd64.exe"
 
 echo "==> sessionsvr cross builds"
 for target in darwin/arm64 linux/arm64 linux/amd64 windows/amd64; do
@@ -38,9 +38,9 @@ for target in darwin/arm64 linux/arm64 linux/amd64 windows/amd64; do
 done
 
 if command -v sha256sum >/dev/null; then
-  (cd "$OUT" && sha256sum *.zip *.tar.gz > SHA256SUMS)
+  (cd "$OUT" && sha256sum * > SHA256SUMS)
 else
-  (cd "$OUT" && shasum -a 256 *.zip *.tar.gz > SHA256SUMS)
+  (cd "$OUT" && shasum -a 256 * > SHA256SUMS)
 fi
 
 echo "==> $OUT"

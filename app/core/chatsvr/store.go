@@ -411,11 +411,6 @@ func (s *Store) LocalOutputs(sessionID string) (map[string][]map[string]any, err
 	return out, rows.Err()
 }
 
-func (s *Store) DeleteLocalOutput(turnID string) error {
-	_, err := s.db.Exec(`delete from local_output where turn_id=?`, turnID)
-	return err
-}
-
 type Attachment struct {
 	ID             string
 	SessionID      string
@@ -460,11 +455,6 @@ func (s *Store) SetAttachmentImageMeta(id, mimeType string, isImage bool) error 
 
 func (s *Store) SetAttachmentFileID(id, fileID string, uploadedAt int64) error {
 	_, err := s.db.Exec(`update attachments set file_id=?, file_uploaded_at=? where id=?`, fileID, uploadedAt, id)
-	return err
-}
-
-func (s *Store) ClearAttachmentFileID(id string) error {
-	_, err := s.db.Exec(`update attachments set file_id='', file_uploaded_at=0 where id=?`, id)
 	return err
 }
 

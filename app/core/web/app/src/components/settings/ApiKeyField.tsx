@@ -27,6 +27,8 @@ const GetApiKeyLink = ({ label }: { label: string }) => (
     href={API_KEY_PLATFORM_URL}
     target="_blank"
     rel="noreferrer"
+    // 抢走输入框焦点会触发 onBlur 把输入区收起来，链接的 click 也因此丢失。
+    onMouseDown={(event) => event.preventDefault()}
   >
     {label}
     <IconRightUpOutline14 />

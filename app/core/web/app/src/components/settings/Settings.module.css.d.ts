@@ -36,6 +36,9 @@ declare const styles: {
   readonly "importConfirmText": string;
   readonly "deleteConfirm": string;
   readonly "deleteActions": string;
+  readonly "switch": string;
+  readonly "switchOn": string;
+  readonly "switchThumb": string;
 };
 export = styles;
 

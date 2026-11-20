@@ -123,14 +123,6 @@ export const uploadFile = async (
   return (await response.json()) as FileObject
 }
 
-/** DELETE /anthropic/v1/files/{file_id} */
-export const deleteFile = async (apiKey: string, fileId: string): Promise<void> => {
-  await request(`${ANTHROPIC_BASE_URL}/files/${encodeURIComponent(fileId)}`, {
-    method: 'DELETE',
-    headers: anthropicHeaders(apiKey, true),
-  })
-}
-
 const hasFile = (body: CreateMessageRequest) =>
   body.messages.some(
     (message) =>

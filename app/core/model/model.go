@@ -60,9 +60,12 @@ type Answer struct {
 	Model      string           `json:"model,omitempty"`
 	Thinking   bool             `json:"thinking,omitempty"`
 	Search     bool             `json:"search,omitempty"`
-	Title      string           `json:"title,omitempty"`
-	DurationMs int64            `json:"durationMs,omitempty"`
-	CreatedAt  int64            `json:"createdAt"`
+	// LatestReminder 是这一轮生效的 latest_reminder 快照（日期、星期、地点、平台、语言）。
+	// 存下来是为了回放历史时用当时的快照，而不是用当前时间重算。
+	LatestReminder string `json:"latestReminder,omitempty"`
+	Title          string `json:"title,omitempty"`
+	DurationMs     int64  `json:"durationMs,omitempty"`
+	CreatedAt      int64  `json:"createdAt"`
 }
 
 // Turn is one Q/A node in the tree. Answer is nil while the turn is open.

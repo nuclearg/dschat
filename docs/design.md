@@ -526,6 +526,8 @@ POST   /api/server/login  POST /api/server/disconnect
 
 - 组装上下文：可见路径 → 跳过 aborted 的 turn（Q 和 A 都不进入）→ 转成 Messages API 的块结构。
 - 请求参数：模型、`thinking`、`tools`（搜索 / 读链接）、`safety_check`、`title`、`latest_reminder`。
+- `safety_check` 由「通用设置 → 内容安全审核」控制：默认开启（`{"level":"high"}`）；关闭后请求体不带该字段，由服务端按其默认策略处理。设置存放在 chatsvr，下一次请求起生效。
+- `latest_reminder` 为独立角色消息，格式 `日期,星期,地点,Web,语言`，由前端在提问时按当前设置（语言、位置信息）生成并随请求提交；服务端把快照写进该轮 answer，回放历史时用当时的快照，内容未变化时不重复插入（与官方 demo 一致）。
 - 解析 SSE：thinking、text、citations、server_tool_use、结果块、usage、title。
 - 生成过程只写内存；结束时一次性落库（本地独有会话可边生成边落库）。
 - 上游错误分类：网络、HTTP、流中断、协议错误；映射为 answer 的 aborted 或 done + stop_reason。

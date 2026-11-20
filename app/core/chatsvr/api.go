@@ -26,7 +26,8 @@ const cookieName = "dschat"
 func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
-		httpx.WriteJSON(w, 200, map[string]any{"ok": true})
+		// app/pid 用来识别「端口被另一个 dschat 占用」：启动失败时桌面层会探测这里。
+		httpx.WriteJSON(w, 200, map[string]any{"ok": true, "app": "dschat", "pid": os.Getpid()})
 	})
 	mux.HandleFunc("POST /api/auth", a.handleAuth)
 	mux.HandleFunc("GET /auth", a.handleLogin)
@@ -407,16 +408,31 @@ func (a *App) settingsView() map[string]any {
 		server["url"] = s.BaseURL
 		server["deviceId"] = s.DeviceID
 	}
+	autoStart, autoStartSupported := a.autoStartView()
 	return map[string]any{
-		"hasKey":     set.APIKey != "",
-		"baseUrl":    set.BaseURL,
-		"model":      set.Model,
-		"thinking":   set.Thinking,
-		"search":     set.Search,
-		"deviceName": set.DeviceName,
-		"deviceId":   a.deviceID,
-		"server":     server,
+		"hasKey":             set.APIKey != "",
+		"baseUrl":            set.BaseURL,
+		"model":              set.Model,
+		"thinking":           set.Thinking,
+		"search":             set.Search,
+		"safetyCheck":        set.SafetyCheck,
+		"autoStart":          autoStart,
+		"autoStartSupported": autoStartSupported,
+		"deviceName":         set.DeviceName,
+		"deviceId":           a.deviceID,
+		"server":             server,
 	}
+}
+
+func (a *App) autoStartView() (bool, bool) {
+	if a.autoStart == nil {
+		return false, false
+	}
+	enabled, err := a.autoStart.Enabled()
+	if err != nil {
+		return false, true
+	}
+	return enabled, true
 }
 
 func (a *App) handleVerifyKey(w http.ResponseWriter, r *http.Request) {
@@ -443,13 +459,15 @@ func (a *App) handleVerifyKey(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		APIKey     *string `json:"apiKey"`
-		ClearKey   bool    `json:"clearKey"`
-		BaseURL    *string `json:"baseUrl"`
-		Model      *string `json:"model"`
-		Thinking   *bool   `json:"thinking"`
-		Search     *bool   `json:"search"`
-		DeviceName *string `json:"deviceName"`
+		APIKey      *string `json:"apiKey"`
+		ClearKey    bool    `json:"clearKey"`
+		BaseURL     *string `json:"baseUrl"`
+		Model       *string `json:"model"`
+		Thinking    *bool   `json:"thinking"`
+		Search      *bool   `json:"search"`
+		SafetyCheck *bool   `json:"safetyCheck"`
+		AutoStart   *bool   `json:"autoStart"`
+		DeviceName  *string `json:"deviceName"`
 	}
 	if err := httpx.ReadJSON(w, r, &req); err != nil {
 		apierr.Write(w, err)
@@ -477,6 +495,19 @@ func (a *App) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Search != nil {
 		_ = a.store.SetKV("search", boolStr(*req.Search))
+	}
+	if req.SafetyCheck != nil {
+		_ = a.store.SetKV("safety_check", boolStr(*req.SafetyCheck))
+	}
+	if req.AutoStart != nil {
+		if a.autoStart == nil {
+			apierr.Write(w, apierr.New(400, "AUTO_START_UNSUPPORTED", "auto start is not supported on this platform"))
+			return
+		}
+		if err := a.autoStart.Set(*req.AutoStart); err != nil {
+			apierr.Write(w, apierr.New(500, "AUTO_START_FAILED", err.Error()))
+			return
+		}
 	}
 	if req.DeviceName != nil && strings.TrimSpace(*req.DeviceName) != "" {
 		name := strings.TrimSpace(*req.DeviceName)

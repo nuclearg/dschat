@@ -81,6 +81,8 @@ export type ApiAnswer = {
   model?: string
   thinking?: boolean
   search?: boolean
+  /** 该轮生效的 latest_reminder 快照，服务端写入并用于回放历史 */
+  latestReminder?: string
   title?: string
   durationMs?: number
   createdAt: number
@@ -131,6 +133,9 @@ export type ApiBootstrap = {
     model: string
     thinking: boolean
     search: boolean
+    safetyCheck: boolean
+    autoStart: boolean
+    autoStartSupported: boolean
     deviceName: string
   }
   server: ApiServer
@@ -150,11 +155,8 @@ export const turnIdOf = (messageId: string) =>
   messageId.startsWith(Q_PREFIX) ? messageId.slice(Q_PREFIX.length) : messageId
 
 export const bootstrap = () => request<ApiBootstrap>('/api/bootstrap')
-export const getSettings = () => request<ApiSettingsView>('/api/settings')
 export const saveSettings = (patch: Record<string, unknown>) =>
   request<ApiSettingsView>('/api/settings', json('PUT', patch))
-export const verifyKey = (apiKey: string) =>
-  request<{ ok: boolean }>('/api/settings/verify', json('POST', { apiKey }))
 
 export const getSession = (id: string) => request<ApiDetail>(`/api/sessions/${id}`)
 export const listSessions = () => request<{ sessions: ApiSessionView[] }>('/api/sessions')
@@ -169,18 +171,28 @@ export type DeleteAllResult = { deleted: number; skipped: number; failed: number
 export const deleteAllSessions = () =>
   request<DeleteAllResult>('/api/sessions', { method: 'DELETE' })
 
-export const sendTurn = (sessionId: string, text: string, attachmentIds: string[]) =>
-  request<ApiTurn>(`/api/sessions/${sessionId}/turns`, json('POST', { text, attachmentIds }))
-export const retryTurn = (sessionId: string, turnId: string) =>
-  request<ApiTurn>(`/api/sessions/${sessionId}/turns`, json('POST', { retryOf: turnId }))
-export const editTurn = (sessionId: string, turnId: string, text: string) =>
-  request<ApiTurn>(`/api/sessions/${sessionId}/turns`, json('POST', { editOf: turnId, text }))
+/** latest_reminder 由前端生成，随每次提问一起提交，服务端按轮次存快照。 */
+export const sendTurn = (
+  sessionId: string,
+  text: string,
+  attachmentIds: string[],
+  latestReminder: string
+) =>
+  request<ApiTurn>(
+    `/api/sessions/${sessionId}/turns`,
+    json('POST', { text, attachmentIds, latestReminder })
+  )
+export const retryTurn = (sessionId: string, turnId: string, latestReminder: string) =>
+  request<ApiTurn>(`/api/sessions/${sessionId}/turns`, json('POST', { retryOf: turnId, latestReminder }))
+export const editTurn = (sessionId: string, turnId: string, text: string, latestReminder: string) =>
+  request<ApiTurn>(
+    `/api/sessions/${sessionId}/turns`,
+    json('POST', { editOf: turnId, text, latestReminder })
+  )
 export const stopTurn = (sessionId: string, turnId: string) =>
   request<{ ok: boolean }>(`/api/sessions/${sessionId}/turns/${turnId}/stop`, { method: 'POST' })
 export const selectTurn = (sessionId: string, turnId: string) =>
   request<{ ok: boolean }>(`/api/sessions/${sessionId}/select`, json('POST', { turnId }))
-export const syncSession = (sessionId: string) =>
-  request<{ ok: boolean }>(`/api/sessions/${sessionId}/sync`, { method: 'POST' })
 export const claimSession = (sessionId: string, force = true) =>
   request<{ ok: boolean }>(`/api/sessions/${sessionId}/claim`, json('POST', { force }))
 

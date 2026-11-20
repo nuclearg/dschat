@@ -95,15 +95,6 @@ export const IconUploadOutline14 = () => (
   </svg>
 )
 
-export const IconDownloadOutline16 = () => (
-  <svg width={16} height={16} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path
-      d="M15.3695 11.411L15.1234 12.8866C14.8869 14.3042 13.6603 15.3436 12.223 15.3436H3.77673C2.33958 15.3434 1.1128 14.3042 0.876343 12.8866L0.630249 11.411L2.05408 11.1747L2.29919 12.6493C2.41973 13.3713 3.04475 13.9001 3.77673 13.9003H12.223C12.9551 13.9002 13.58 13.3713 13.7006 12.6493L13.9457 11.1747L15.3695 11.411ZM8.72205 8.994C8.77717 8.93934 8.83792 8.88106 8.90271 8.81627L12.4828 5.23424L13.5043 6.25572L9.92224 9.8358C9.6395 10.1185 9.38763 10.3732 9.15857 10.5575C8.91892 10.7503 8.63953 10.9224 8.2865 10.9784C8.09711 11.0083 7.90363 11.0083 7.71423 10.9784C7.36106 10.9224 7.0809 10.7503 6.84119 10.5575C6.61215 10.3732 6.36022 10.1185 6.07751 9.8358L2.49646 6.25572L3.51697 5.23424L7.09705 8.81627C7.16219 8.88142 7.22331 8.94006 7.27869 8.99498V1.3065H8.72205V8.994Z"
-      fill="currentColor"
-    />
-  </svg>
-)
-
 export const IconEditOutline16 = () => (
   <svg width={16} height={16} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
     <path
@@ -520,6 +511,32 @@ export const IconToastError16 = () => (
     <path
       d="M7.383 8.4c.013.406.222.61.624.61.388 0 .587-.204.597-.61l.11-3.373a.603.603 0 0 0-.194-.492.728.728 0 0 0-.527-.202.718.718 0 0 0-.52.195.622.622 0 0 0-.188.5l.098 3.371zM7.424 11.098a.849.849 0 0 0 .583.215.83.83 0 0 0 .569-.215.7.7 0 0 0 .243-.548.7.7 0 0 0-.243-.548.815.815 0 0 0-.569-.215.834.834 0 0 0-.583.222.701.701 0 0 0-.236.54c0 .218.079.4.236.549z"
       fill="currentColor"
+    />
+  </svg>
+)
+
+/** 钥匙：设置里的 API Key 分组 */
+export const IconKeyOutline16 = () => (
+  <svg width={16} height={16} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="5.03" cy="10.97" r="2.72" stroke="currentColor" strokeWidth={1.2} />
+    <path d="M6.96 9.04 13 3" stroke="currentColor" strokeWidth={1.2} strokeLinecap="round" />
+    <path
+      d="m10.58 5.42 1.13 1.13M11.79 4.21l1.13 1.13"
+      stroke="currentColor"
+      strokeWidth={1.2}
+      strokeLinecap="round"
+    />
+  </svg>
+)
+
+/** 云：设置里的多端同步分组 */
+export const IconCloudOutline16 = () => (
+  <svg width={16} height={16} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="M4.6 12.2h6.7a2.9 2.9 0 0 0 .2-5.8 4 4 0 0 0-7.6-.3 2.9 2.9 0 0 0 .7 6.1Z"
+      stroke="currentColor"
+      strokeWidth={1.3}
+      strokeLinejoin="round"
     />
   </svg>
 )
