@@ -37,7 +37,7 @@ make android          # dist/android/dschat-debug.apk + chatsvr.aar
 ```
 
 `make build` 产物：`bin/dschat`（macOS，默认带菜单栏）、`bin/sessionsvr`。
-`make shells` 产物：`dist/Dschat.app`（arm64/x86_64 universal）、`dist/dschat-windows-amd64.exe`。
+`make shells` 产物：`dist/Dschat.app`（arm64/x86_64 universal，最低 macOS 13）、`dist/dschat-windows-amd64.exe`。
 `make app-macos-dmg` 产物：`dist/release/dschat-macos-arm64.dmg`，使用本机钥匙串里的 Developer ID Application 证书签名。设置 `APPLE_API_KEY`、`APPLE_API_KEY_ID`、`APPLE_API_ISSUER_ID` 后会继续公证并 staple。脚本默认关闭 S3 Transfer Acceleration（国内网络更稳），需要时设 `NOTARY_S3_ACCELERATION=1`。
 `make android` 产物：`dist/android/dschat-debug.apk`、`dist/android/chatsvr.aar`（需要 Android SDK + NDK 27.2 + gomobile）。
 

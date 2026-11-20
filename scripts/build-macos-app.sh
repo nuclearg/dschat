@@ -3,6 +3,13 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 APP=dist/Dschat.app
+# Binaries built with Go 1.26/1.25 can target macOS 12; Go 1.27 requires 13.
+# Keep cgo and the Go linker on the same deployment target so the Mach-O
+# LC_BUILD_VERSION does not inherit the build machine's SDK version.
+MACOS_MIN="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
+export MACOSX_DEPLOYMENT_TARGET="$MACOS_MIN"
+export CGO_CFLAGS="${CGO_CFLAGS:-} -mmacosx-version-min=$MACOS_MIN"
+export CGO_LDFLAGS="${CGO_LDFLAGS:-} -mmacosx-version-min=$MACOS_MIN"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 

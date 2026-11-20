@@ -61,6 +61,8 @@ jobs:
   macos-app:
     needs: web
     runs-on: macos-15
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "13.0"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
