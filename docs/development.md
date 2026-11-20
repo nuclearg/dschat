@@ -7,7 +7,7 @@
 - Go 1.26 或更新版本
 - Node.js 22 + pnpm 9（只在修改 Web UI 时需要）
 - macOS 构建：Xcode Command Line Tools
-- DMG 布局：`python3 -m pip install --user dmgbuild`
+- DMG 布局：`python3 -m pip install --user dmgbuild`（或设 `DMGBUILD_PYTHON` 指向装有 dmgbuild 的 Python）
 - Windows 构建：`mingw-w64`
 - Android 构建：Android SDK、NDK 27.2、gomobile
 

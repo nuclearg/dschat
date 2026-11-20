@@ -36,10 +36,11 @@ codesign --verify --deep --strict --verbose=2 "$APP"
 echo "==> build dmg"
 mkdir -p dist/release
 rm -f "$DMG"
-if python3 -c 'import dmgbuild' >/dev/null 2>&1; then
+DMGBUILD_PYTHON="${DMGBUILD_PYTHON:-python3}"
+if "$DMGBUILD_PYTHON" -c 'import dmgbuild' >/dev/null 2>&1; then
   APP_ABS="$(cd "$(dirname "$APP")" && pwd)/$(basename "$APP")"
   BG_ABS="$(pwd)/packaging/macos/dmg-background.png"
-  python3 -m dmgbuild \
+  "$DMGBUILD_PYTHON" -m dmgbuild \
     -s packaging/macos/dmg-settings.py \
     -Dapp="$APP_ABS" \
     -Dbackground="$BG_ABS" \
