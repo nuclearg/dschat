@@ -1,6 +1,8 @@
-# dschat
+<img src="docs/whale.svg" alt="dschat icon" width="150" height="150">
 
-原汁原味复刻 DeepSeek 网页版和 App 体验！
+# dschat —— 多端数据互通的 AI 聊天框
+
+不是复杂的 Agent / Harness，只是一个简单的聊天框，原汁原味复刻 DeepSeek 网页版和 App 体验！
 
 不受限制的重新生成次数！
 
@@ -25,24 +27,24 @@
 
 默认所有会话只存在本机，不会上传任何数据。
 
-如果想在电脑、手机之间共用同一份会话，可以自己部署一个同步服务 `sessionsvr`：
+如果想在电脑、手机之间共用同一份会话，可以自己部署一个同步服务（官方服务敬请期待）
+
 它只有一个可执行文件加一个配置文件，会话和附件都留在你自己的机器上，不经过第三方服务。
 
-部署步骤、配置说明、HTTPS、备份与升级都在
-[自建数据同步服务部署指南](docs/self-host.md) 里。
+部署步骤、配置说明、HTTPS、备份与升级参见 [自建数据同步服务部署指南](docs/self-host.md)。
 
-## 意见和建议
+## 常见问题
+
+### 是免费的吗？
+
+不免费。
+
+这个软件本身是开源的，不收费，但是 DeepSeek 的 API Key 是需要充值才能使用的。
+
+### 我还有其它想问的
 
 通过 [GutHub Issues](https://github.com/nuclearg/dschat/issues) 提交
 
 也可以加入 QQ 群
 
 <img src="docs/qq.png" alt="dschat QQ 群" width="320" height="320">
-
-## 常见问题
-
-### 是免费的吗？
-
-不免费。DeepSeek 的 API Key 是需要充值才能使用的。
-
-其它待补充
