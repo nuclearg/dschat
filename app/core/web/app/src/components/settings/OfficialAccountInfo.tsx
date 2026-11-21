@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react'
 import { ApiError, getServerAccountInfo, type ApiAccountInfo } from '../../services/chatsvr.js'
 import { useTranslate } from '../../i18n/index.js'
-import { formatDate } from '../../utils/format.js'
-import { formatSize } from '../../services/attachments.js'
 import styles from './Settings.module.css'
 
 const errorMessage = (error: unknown) =>
   error instanceof ApiError ? error.message : error instanceof Error ? error.message : String(error)
 
-/** 官方 cloudsvr 专属：账户、会员、用量。自建 sessionsvr 不渲染此组件。 */
+/**
+ * 官方 cloudsvr 账户页。
+ *
+ * 服务端下发 name/value/action，前端只按顺序渲染；不要在这里假设任何字段。
+ * action 存在时渲染按钮，点击打开 action.url。
+ */
 export const OfficialAccountInfo = () => {
   const t = useTranslate()
   const [info, setInfo] = useState<ApiAccountInfo | null>(null)
@@ -33,13 +36,12 @@ export const OfficialAccountInfo = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const used = info?.usage.storageUsedBytes ?? 0
-  const limit = info?.usage.storageLimitBytes ?? 0
-  const percent = limit > 0 ? Math.min(100, Math.max(0, (used / limit) * 100)) : 0
-  const expiry =
-    info && info.membership.planId !== 'free' && info.membership.periodEnd > 0
-      ? formatDate(info.membership.periodEnd, '/')
-      : ''
+  const runAction = (url: string) => {
+    if (!/^https?:\/\//i.test(url)) {
+      return
+    }
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
 
   return (
     <section className={styles.accountPanel} aria-label={t('syncAccountTitle')}>
@@ -55,35 +57,21 @@ export const OfficialAccountInfo = () => {
 
       {info ? (
         <div className={styles.accountGrid}>
-          <div className={styles.accountRow}>
-            <span>{t('syncAccountPhone')}</span>
-            <strong>{info.account.phone || '—'}</strong>
-          </div>
-          <div className={styles.accountRow}>
-            <span>{t('syncAccountPlan')}</span>
-            <strong>{info.membership.planName || info.membership.planId}</strong>
-          </div>
-          <div className={styles.accountRow}>
-            <span>{t('syncAccountStorage')}</span>
-            <strong>
-              {t('syncAccountStorageUsage', { used: formatSize(used), limit: formatSize(limit) })}
-            </strong>
-          </div>
-          <div className={styles.storageBar} role="progressbar" aria-valuenow={Math.round(percent)} aria-valuemin={0} aria-valuemax={100}>
-            <div className={styles.storageFill} style={{ width: `${percent}%` }} />
-          </div>
-          {expiry ? (
-            <div className={styles.accountRow}>
-              <span>{t('syncAccountExpires')}</span>
-              <strong>{expiry}</strong>
+          {info.items.map((item, index) => (
+            <div className={styles.accountRow} key={`${item.name}-${index}`}>
+              <span>{item.name}</span>
+              <strong>{item.value}</strong>
+              {item.action ? (
+                <button
+                  type="button"
+                  className={styles.accountAction}
+                  onClick={() => runAction(item.action!.url)}
+                >
+                  {item.action.text}
+                </button>
+              ) : null}
             </div>
-          ) : null}
-          <div className={styles.accountRow}>
-            <span>{t('syncAccountOpenTurns')}</span>
-            <strong>
-              {info.usage.openTurns} / {info.usage.maxOpenTurns}
-            </strong>
-          </div>
+          ))}
         </div>
       ) : null}
     </section>

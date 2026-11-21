@@ -177,22 +177,20 @@ export type ApiDevices = {
   devices: ApiDevice[]
 }
 
+export type ApiAccountAction = {
+  text: string
+  url: string
+}
+
+/** 账户页协议：前端只按顺序渲染，不假设任何条目或业务字段。 */
+export type ApiAccountItem = {
+  name: string
+  value: string
+  action?: ApiAccountAction
+}
+
 export type ApiAccountInfo = {
-  account: { phone: string; status: string }
-  membership: {
-    planId: string
-    planName: string
-    status: string
-    syncEnabled: boolean
-    periodEnd: number
-    graceUntil: number
-  }
-  usage: {
-    storageUsedBytes: number
-    storageLimitBytes: number
-    openTurns: number
-    maxOpenTurns: number
-  }
+  items: ApiAccountItem[]
 }
 
 export const bootstrap = () => request<ApiBootstrap>('/api/bootstrap')

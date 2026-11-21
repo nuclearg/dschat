@@ -407,30 +407,18 @@ type DevicesResult struct {
 // sessionsvr returns EndpointNotFound, which callers translate into "hide the
 // official-only card".
 type AccountInfo struct {
-	Account    AccountView    `json:"account"`
-	Membership MembershipView `json:"membership"`
-	Usage      UsageView      `json:"usage"`
+	Items []AccountItem `json:"items"`
 }
 
-type AccountView struct {
-	Phone  string `json:"phone"`
-	Status string `json:"status"`
+type AccountItem struct {
+	Name   string         `json:"name"`
+	Value  string         `json:"value"`
+	Action *AccountAction `json:"action,omitempty"`
 }
 
-type MembershipView struct {
-	PlanID      string `json:"planId"`
-	PlanName    string `json:"planName"`
-	Status      string `json:"status"`
-	SyncEnabled bool   `json:"syncEnabled"`
-	PeriodEnd   int64  `json:"periodEnd"`
-	GraceUntil  int64  `json:"graceUntil"`
-}
-
-type UsageView struct {
-	StorageUsedBytes  int64 `json:"storageUsedBytes"`
-	StorageLimitBytes int64 `json:"storageLimitBytes"`
-	OpenTurns         int   `json:"openTurns"`
-	MaxOpenTurns      int   `json:"maxOpenTurns"`
+type AccountAction struct {
+	Text string `json:"text"`
+	URL  string `json:"url"`
 }
 
 func (s *Sync) ListDevices(ctx context.Context) (*DevicesResult, error) {
