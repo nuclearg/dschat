@@ -434,6 +434,9 @@ func (s *Sync) ListDevices(ctx context.Context) (*DevicesResult, error) {
 	if err := s.do(ctx, "devices.list", nil, &out); err != nil {
 		return nil, err
 	}
+	if out.Devices == nil {
+		out.Devices = []RemoteDevice{}
+	}
 	return &out, nil
 }
 
@@ -445,6 +448,9 @@ func (s *Sync) AccountInfo(ctx context.Context) (*AccountInfo, error) {
 	var out AccountInfo
 	if err := s.do(ctx, "account.info", nil, &out); err != nil {
 		return nil, err
+	}
+	if out.Items == nil {
+		out.Items = []AccountItem{}
 	}
 	return &out, nil
 }

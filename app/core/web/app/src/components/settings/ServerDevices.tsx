@@ -23,7 +23,7 @@ export const ServerDevices = () => {
     setError('')
     try {
       const result = await listServerDevices()
-      setDevices(result.devices)
+      setDevices(result.devices ?? [])
     } catch (e) {
       setError(t('syncDevicesLoadFailed', { message: errorMessage(e) }))
     } finally {
@@ -72,7 +72,7 @@ export const ServerDevices = () => {
         <div className={styles.accountMuted}>{t('syncDevicesEmpty')}</div>
       ) : null}
 
-      {devices.map((device) => (
+      {(devices ?? []).map((device) => (
         <div className={styles.deviceRow} key={device.deviceId}>
           <div className={styles.deviceInfo}>
             <div className={styles.deviceName}>

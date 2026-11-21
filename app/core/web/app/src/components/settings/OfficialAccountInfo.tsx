@@ -57,7 +57,7 @@ export const OfficialAccountInfo = () => {
 
       {info ? (
         <div className={styles.accountGrid}>
-          {info.items.map((item, index) => {
+          {(info.items ?? []).map((item, index) => {
             const action = item.action
             return (
               <div className={styles.accountRow} key={`${item.name}-${index}`}>

@@ -13,3 +13,8 @@ declare module 'prismjs/components/*' {}
 
 /** KaTeX 化学公式扩展通过副作用注册到 KaTeX */
 declare module 'katex/contrib/mhchem' {}
+
+declare module '*.png' {
+  const src: string
+  export default src
+}

@@ -22,9 +22,23 @@
   flex-shrink: 0;
 }
 
-.appName {
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
   padding-left: 4px;
+}
+
+.appIcon {
+  display: block;
+  flex-shrink: 0;
+  width: auto;
+  height: 20px;
+}
+
+.appName {
+  min-width: 0;
   overflow: hidden;
   font-size: 20px;
   line-height: 22px;

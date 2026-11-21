@@ -70,6 +70,7 @@ export const createConfig = ({
         },
         type: 'javascript/auto',
       },
+      { test: /\.(png|jpe?g|gif|webp|svg)$/, type: 'asset/resource' },
       { test: /\.(woff2?|ttf)$/, type: 'asset/resource' },
     ],
   },
