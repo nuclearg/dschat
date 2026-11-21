@@ -25,7 +25,7 @@ import (
 // redirect logic drops Authorization when the host changes; sessionsvr may sit
 // behind an http->https or host-normalization redirect, and the API must keep
 // its Bearer token after that hop.
-var syncedHeaders = []string{"Authorization", "X-Language", "Content-Type", "Accept"}
+var syncedHeaders = []string{"Authorization", "X-Language", "X-Trace-Id", "Content-Type", "Accept"}
 
 // newSyncHTTPClient returns the one client used for every chatsvr -> sessionsvr
 // call. Go follows 301/302/303/307/308 by default, but 301/302/303 rewrite POST
@@ -38,6 +38,10 @@ func newSyncHTTPClient(timeout time.Duration) *http.Client {
 		CheckRedirect: preservePostRedirect,
 	}
 }
+
+// newTraceID 生成本次 chatsvr -> sessionsvr 调用的链路 ID。服务端不参与生成，
+// 只负责透传和记录；重试/重定向沿用同一个 ID。
+func newTraceID() string { return model.NewID() }
 
 func preservePostRedirect(req *http.Request, via []*http.Request) error {
 	// Same ten-hop ceiling as net/http's default policy; without this a
@@ -204,6 +208,7 @@ func Login(ctx context.Context, baseURL, password, name, platform, localDeviceID
 		language = "zh-CN"
 	}
 	req.Header.Set("X-Language", language)
+	req.Header.Set("X-Trace-Id", newTraceID())
 	resp, err := newSyncHTTPClient(60 * time.Second).Do(req)
 	if err != nil {
 		return nil, err
@@ -249,6 +254,7 @@ func parseLoginResult(data json.RawMessage) (*LoginResult, error) {
 }
 
 func (s *Sync) do(ctx context.Context, action string, in any, out any) error {
+	traceID := newTraceID()
 	var payload []byte
 	if in != nil {
 		b, err := json.Marshal(in)
@@ -276,6 +282,7 @@ func (s *Sync) do(ctx context.Context, action string, in any, out any) error {
 			req.Header.Set("Content-Type", "application/json")
 		}
 		req.Header.Set("X-Language", s.language())
+		req.Header.Set("X-Trace-Id", traceID)
 		if !authAction {
 			req.Header.Set("Authorization", "Bearer "+s.currentAccess())
 		}
@@ -352,6 +359,7 @@ func (s *Sync) Refresh(ctx context.Context) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Language", s.language())
+	req.Header.Set("X-Trace-Id", newTraceID())
 	resp, err := s.HTTP.Do(req)
 	if err != nil {
 		return err
@@ -562,6 +570,9 @@ func (s *Sync) directRequest(ctx context.Context, info *redirectInfo, body io.Re
 	// OSS presigned URLs must not receive that header.
 	if info.Multipart || sameOrigin(s.BaseURL, target) {
 		req.Header.Set("Authorization", "Bearer "+s.currentAccess())
+		// OSS presigned URLs must not receive extra signed headers; only the
+		// self-hosted data plane gets the trace header.
+		req.Header.Set("X-Trace-Id", newTraceID())
 	}
 	req.Header.Set("X-Language", s.language())
 	return newSyncHTTPClient(60 * time.Second).Do(req)
@@ -748,6 +759,7 @@ func (s *Sync) stream(ctx context.Context, onEvent func(RemoteEvent)) (bool, err
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+s.currentAccess())
 	req.Header.Set("X-Language", s.language())
+	req.Header.Set("X-Trace-Id", newTraceID())
 	req.Header.Set("Accept", "text/event-stream")
 	resp, err := s.HTTP.Do(req)
 	if err != nil {

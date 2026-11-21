@@ -52,6 +52,7 @@ func postAction(ctx context.Context, baseURL, action, language string, payload a
 		language = "zh-CN"
 	}
 	req.Header.Set("X-Language", language)
+	req.Header.Set("X-Trace-Id", newTraceID())
 	resp, err := newSyncHTTPClient(officialTimeout).Do(req)
 	if err != nil {
 		return nil, err

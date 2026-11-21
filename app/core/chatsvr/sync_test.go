@@ -25,6 +25,9 @@ func TestLoginAndListRPC(t *testing.T) {
 			if r.Header.Get("X-Language") != "zh-CN" {
 				t.Errorf("language = %q", r.Header.Get("X-Language"))
 			}
+			if r.Header.Get("X-Trace-Id") == "" {
+				t.Error("auth.login missing X-Trace-Id")
+			}
 			writeResult(w, map[string]any{
 				"success": true,
 				"data": map[string]any{
@@ -35,6 +38,9 @@ func TestLoginAndListRPC(t *testing.T) {
 		case "/v1/sessions.list":
 			if got := r.Header.Get("Authorization"); got != "Bearer "+access {
 				t.Errorf("authorization = %q", got)
+			}
+			if r.Header.Get("X-Trace-Id") == "" {
+				t.Error("sessions.list missing X-Trace-Id")
 			}
 			writeResult(w, map[string]any{
 				"success": true,
