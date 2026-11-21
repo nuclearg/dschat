@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 APP=dist/Dschat.app
-OFFICIAL_BASE_URL="${OFFICIAL_BASE_URL:-http://cloudsvr.nuclearg.info:80}"
+OFFICIAL_BASE_URL="${OFFICIAL_BASE_URL:-https://cloudsvr.nuclearg.top}"
 LDFLAGS="-s -w -X 'dschat/app/core/chatsvr.OfficialBaseURL=${OFFICIAL_BASE_URL}'"
 # Binaries built with Go 1.26/1.25 can target macOS 12; Go 1.27 requires 13.
 # Keep cgo and the Go linker on the same deployment target so the Mach-O

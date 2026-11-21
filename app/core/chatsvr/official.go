@@ -16,7 +16,7 @@ import (
 // 注册与找回密码是 cloudsvr 上的网页（/register、/reset），由客户端把链接打开给用户。
 //
 // 生产默认地址。`make run` 会用 -ldflags 覆盖为 http://localhost:5219 做本地联调。
-var OfficialBaseURL = "http://cloudsvr.nuclearg.info:80"
+var OfficialBaseURL = "https://cloudsvr.nuclearg.top"
 
 // officialTimeout 给官方接口一个统一超时：登录要校验 Argon2 哈希，比本地 API 慢。
 const officialTimeout = 20 * time.Second
