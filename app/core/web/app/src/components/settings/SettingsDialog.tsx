@@ -78,8 +78,6 @@ const SettingsContent = () => {
   const apiKeyEditor = useApiKeyEditor()
   const historyImport = useHistoryImport()
   const historyDelete = useHistoryDelete()
-  const apiKey = useSettings((state) => state.apiKey)
-  const server = useChatStore((state) => state.server)
   const replacingHistory = useChatStore((state) => state.importingHistory)
   const historyBusy = historyImport.busy || historyDelete.busy || replacingHistory
   return (
@@ -96,39 +94,19 @@ const SettingsContent = () => {
         }}
       >
         <div role="tablist" className={styles.navigation}>
-          {sections.map((item) => {
-            const unavailable =
-              (item.value === 'account' && !apiKey) || (item.value === 'sync' && !server.paired)
-            const unavailableLabel =
-              item.value === 'account'
-                ? t('settingsApiKeyNotConfigured')
-                : item.value === 'sync'
-                  ? t('settingsSyncNotConnected')
-                  : ''
-            return (
-              <button
-                key={item.value}
-                type="button"
-                role="tab"
-                aria-selected={section === item.value}
-                className={clsx(styles.navItem, section === item.value && styles.navItemActive)}
-                onClick={() => setSection(item.value)}
-              >
-                <span
-                  className={clsx(styles.navIcon, unavailable && styles.navIconUnavailable)}
-                  title={unavailable ? unavailableLabel : undefined}
-                  aria-label={unavailable ? unavailableLabel : undefined}
-                >
-                  {item.icon}
-                </span>
-                {unavailable
-                  ? t(item.value === 'account'
-                      ? 'settingDialogAsideAccountOptionLabelUnavailable'
-                      : 'settingDialogAsideSyncOptionLabelUnavailable')
-                  : t(item.label)}
-              </button>
-            )
-          })}
+          {sections.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              role="tab"
+              aria-selected={section === item.value}
+              className={clsx(styles.navItem, section === item.value && styles.navItemActive)}
+              onClick={() => setSection(item.value)}
+            >
+              <span className={styles.navIcon}>{item.icon}</span>
+              {t(item.label)}
+            </button>
+          ))}
         </div>
         <div role="tabpanel" className={styles.content}>
           {section === 'general' ? (

@@ -73,20 +73,6 @@
   display: block;
 }
 
-/* 未配置时在图标上画一条斜线；用 currentColor 保持和导航文字一致。 */
-.navIconUnavailable::after {
-  content: '';
-  position: absolute;
-  left: 1px;
-  right: 1px;
-  top: 50%;
-  height: 1.5px;
-  border-radius: 1px;
-  background: currentColor;
-  transform: rotate(-45deg);
-  transform-origin: center;
-  opacity: 0.7;
-}
 
 .content {
   display: flex;
@@ -174,7 +160,6 @@
 .regionSelect {
   max-width: min(285px, 100%);
 }
-
 
 .description {
   font-size: 12px;
@@ -461,7 +446,6 @@
     max-width: 100%;
   }
 }
-
 
 /* sessionsvr 连接配置 */
 .radioGroup {
