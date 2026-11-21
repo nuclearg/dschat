@@ -57,21 +57,24 @@ export const OfficialAccountInfo = () => {
 
       {info ? (
         <div className={styles.accountGrid}>
-          {info.items.map((item, index) => (
-            <div className={styles.accountRow} key={`${item.name}-${index}`}>
-              <span>{item.name}</span>
-              <strong>{item.value}</strong>
-              {item.action ? (
-                <button
-                  type="button"
-                  className={styles.accountAction}
-                  onClick={() => runAction(item.action!.url)}
-                >
-                  {item.action.text}
-                </button>
-              ) : null}
-            </div>
-          ))}
+          {info.items.map((item, index) => {
+            const action = item.action
+            return (
+              <div className={styles.accountRow} key={`${item.name}-${index}`}>
+                <span>{item.name}</span>
+                <strong>{item.value}</strong>
+                {action ? (
+                  <button
+                    type="button"
+                    className={styles.accountAction}
+                    onClick={() => runAction(action.url)}
+                  >
+                    {action.text}
+                  </button>
+                ) : null}
+              </div>
+            )
+          })}
         </div>
       ) : null}
     </section>
