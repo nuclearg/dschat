@@ -48,8 +48,11 @@ declare const styles: {
   readonly "deviceRow": string;
   readonly "deviceInfo": string;
   readonly "deviceName": string;
+  readonly "deviceLabel": string;
+  readonly "devicePlatform": string;
+  readonly "deviceRight": string;
+  readonly "deviceLastSeen": string;
   readonly "currentBadge": string;
-  readonly "deviceMeta": string;
   readonly "removeDeviceButton": string;
   readonly "accountGrid": string;
   readonly "accountRow": string;

@@ -633,7 +633,7 @@ const SessionsvrSetting = () => {
           <>
             <div className={styles.serverStatus}>
               <strong>{t('syncConnected')}</strong>
-              <span>{server.url}</span>
+              {server.kind === 'official' ? null : <span>{server.url}</span>}
               <Button variant="outlined" size="s" onClick={() => void disconnectNow()} disabled={busy}>
                 {t('syncDisconnect')}
               </Button>

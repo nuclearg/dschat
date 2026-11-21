@@ -60,7 +60,6 @@ export const ServerDevices = () => {
       <div className={styles.accountHeader}>
         <div>
           <div className={styles.accountTitle}>{t('syncDevicesTitle')}</div>
-          <div className={styles.accountHint}>{t('syncDevicesDescription')}</div>
         </div>
         <button type="button" className={styles.refreshButton} onClick={() => void load()} disabled={loading}>
           {t('syncDevicesRefresh')}
@@ -72,29 +71,30 @@ export const ServerDevices = () => {
         <div className={styles.accountMuted}>{t('syncDevicesEmpty')}</div>
       ) : null}
 
-      {(devices ?? []).map((device) => (
+      {devices.map((device) => (
         <div className={styles.deviceRow} key={device.deviceId}>
-          <div className={styles.deviceInfo}>
-            <div className={styles.deviceName}>
+          <div className={styles.deviceName}>
+            <span className={styles.deviceLabel}>
               {device.name || device.deviceId}
-              {device.current ? <span className={styles.currentBadge}>{t('syncDeviceCurrent')}</span> : null}
-            </div>
-            <div className={styles.deviceMeta}>
-              {[device.platform, lastSeen(device) ? t('syncDeviceLastSeen', { time: lastSeen(device) }) : '']
-                .filter(Boolean)
-                .join(' · ')}
-            </div>
+              {device.platform ? <span className={styles.devicePlatform}>（{device.platform}）</span> : null}
+            </span>
+            {device.current ? <span className={styles.currentBadge}>{t('syncDeviceCurrent')}</span> : null}
           </div>
-          {!device.current ? (
-            <button
-              type="button"
-              className={styles.removeDeviceButton}
-              onClick={() => setConfirm(device)}
-              disabled={revoking}
-            >
-              {t('syncDeviceRemove')}
-            </button>
-          ) : null}
+          <div className={styles.deviceRight}>
+            <span className={styles.deviceLastSeen}>
+              {lastSeen(device) ? `${t('syncDeviceLastUsed')}${lastSeen(device)}` : '—'}
+            </span>
+            {!device.current ? (
+              <button
+                type="button"
+                className={styles.removeDeviceButton}
+                onClick={() => setConfirm(device)}
+                disabled={revoking}
+              >
+                {t('syncDeviceRemove')}
+              </button>
+            ) : null}
+          </div>
         </div>
       ))}
 

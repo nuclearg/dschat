@@ -695,12 +695,26 @@
 
 .deviceName {
   display: flex;
+  flex: 1;
   align-items: center;
-  flex-wrap: wrap;
+  min-width: 0;
   gap: 7px;
   color: var(--dsw-alias-label-primary);
   font-size: 13px;
   line-height: 20px;
+  white-space: nowrap;
+}
+
+.deviceLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.devicePlatform {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
 }
 
 .currentBadge {
@@ -712,8 +726,15 @@
   line-height: 16px;
 }
 
-.deviceMeta {
-  margin-top: 2px;
+.deviceRight {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.deviceLastSeen {
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
   line-height: 17px;
