@@ -125,7 +125,13 @@ export type ApiDetail = {
   localOutput?: Record<string, unknown[]>
 }
 
-export type ApiServer = { paired: boolean; url: string; deviceId: string }
+export type ApiServer = {
+  paired: boolean
+  url: string
+  deviceId: string
+  /** 官方 cloudsvr 才有账户/会员/用量；自建 sessionsvr 只有设备管理。 */
+  kind: 'official' | 'selfHosted' | ''
+}
 
 export type ApiBootstrap = {
   device: { id: string; name: string }
@@ -141,6 +147,8 @@ export type ApiBootstrap = {
     deviceName: string
   }
   server: ApiServer
+  /** 官方服务地址：注册与找回密码是它上面的网页，客户端只负责拼链接 */
+  officialBaseUrl: string
   sessions: ApiSessionView[]
 }
 
@@ -155,6 +163,37 @@ export const CONTEXT_WINDOW = 1_000_000
 export const Q_PREFIX = 'q:'
 export const turnIdOf = (messageId: string) =>
   messageId.startsWith(Q_PREFIX) ? messageId.slice(Q_PREFIX.length) : messageId
+
+export type ApiDevice = {
+  deviceId: string
+  name: string
+  platform: string
+  lastSeen: number
+  current: boolean
+}
+
+export type ApiDevices = {
+  currentDeviceId: string
+  devices: ApiDevice[]
+}
+
+export type ApiAccountInfo = {
+  account: { phone: string; status: string }
+  membership: {
+    planId: string
+    planName: string
+    status: string
+    syncEnabled: boolean
+    periodEnd: number
+    graceUntil: number
+  }
+  usage: {
+    storageUsedBytes: number
+    storageLimitBytes: number
+    openTurns: number
+    maxOpenTurns: number
+  }
+}
 
 export const bootstrap = () => request<ApiBootstrap>('/api/bootstrap')
 export const saveSettings = (patch: Record<string, unknown>) =>
@@ -244,11 +283,28 @@ export const uploadAttachment = async (
   return request<ApiAttachment>('/api/attachments', { method: 'POST', body: form, signal })
 }
 
+export type ServerLoginResult = {
+  paired: boolean
+  url: string
+  deviceId: string
+  kind: 'official' | 'selfHosted'
+}
+
 export const loginServer = (url: string, password: string) =>
-  request<{ paired: boolean; url: string; deviceId: string }>(
-    '/api/server/login',
-    json('POST', { url, password })
-  )
+  request<ServerLoginResult>('/api/server/login', json('POST', { url, password }))
+/**
+ * 官方模式登录：手机号 + 密码。地址由服务端内置，前端不参与。
+ */
+export const officialLoginServer = (phone: string, password: string) =>
+  request<ServerLoginResult>('/api/server/officialLogin', json('POST', { phone, password }))
+
+export const listServerDevices = () => request<ApiDevices>('/api/server/devices')
+export const revokeServerDevice = (deviceId: string) =>
+  request<{ ok: boolean }>(`/api/server/devices/${encodeURIComponent(deviceId)}`, {
+    method: 'DELETE',
+  })
+export const getServerAccountInfo = () => request<ApiAccountInfo>('/api/server/account')
+
 export const disconnectServer = () =>
   request<{ paired: boolean }>('/api/server/disconnect', { method: 'POST' })
 

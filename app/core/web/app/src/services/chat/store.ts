@@ -6,6 +6,7 @@ import {
   bootstrap as apiBootstrap,
   disconnectServer as apiDisconnectServer,
   loginServer as apiLoginServer,
+  officialLoginServer as apiOfficialLoginServer,
   type ApiServer,
   claimSession,
   createSession,
@@ -42,6 +43,8 @@ type ChatState = {
   activeId: string | null
   streaming: Record<string, AbortController>
   server: ApiServer
+  /** 注册/找回密码页面的地址前缀；为空表示拿不到（未登录也应当有值） */
+  officialBaseUrl: string
 }
 
 export const useChatStore = create<ChatState>(() => ({
@@ -54,7 +57,8 @@ export const useChatStore = create<ChatState>(() => ({
   sessionSaveErrors: {},
   activeId: null,
   streaming: {},
-  server: { paired: false, url: '', deviceId: '' },
+  server: { paired: false, url: '', deviceId: '', kind: '' },
+  officialBaseUrl: '',
 }))
 
 const { getState: get, setState: set } = useChatStore
@@ -151,7 +155,7 @@ export const initChat = (): Promise<void> => {
         autoStartSupported: boot.settings.autoStartSupported,
       })
       const sessions = boot.sessions.map(toSummary).sort((a, b) => b.updatedAt - a.updatedAt)
-      set({ sessions, server: boot.server, ready: true, initError: false })
+      set({ sessions, server: boot.server, officialBaseUrl: boot.officialBaseUrl ?? '', ready: true, initError: false })
       connectEvents()
     } catch (error) {
       set({ ready: false, initError: true })
@@ -164,14 +168,30 @@ export const initChat = (): Promise<void> => {
 
 export const loginServer = async (url: string, password: string) => {
   const result = await apiLoginServer(url, password)
-  set({ server: { paired: true, url: result.url, deviceId: result.deviceId } })
+  set({ server: { paired: true, url: result.url, deviceId: result.deviceId, kind: result.kind } })
+  await refreshSessions()
+  return result
+}
+
+
+
+
+/**
+ * 官方模式登录：手机号 + 密码。成功后与自建一样切成已连接并拉一次会话。
+ *
+ * 注册与找回密码不在客户端：那是 cloudsvr 上的网页（/register、/reset），
+ * 客户端只提供链接。
+ */
+export const officialLoginServer = async (phone: string, password: string) => {
+  const result = await apiOfficialLoginServer(phone, password)
+  set({ server: { paired: true, url: result.url, deviceId: result.deviceId, kind: result.kind } })
   await refreshSessions()
   return result
 }
 
 export const disconnectServer = async () => {
   await apiDisconnectServer()
-  set({ server: { paired: false, url: '', deviceId: '' } })
+  set({ server: { paired: false, url: '', deviceId: '', kind: '' } })
   await refreshSessions()
 }
 

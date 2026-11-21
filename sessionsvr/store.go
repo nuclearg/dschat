@@ -23,10 +23,11 @@ const ProtocolVersion = 1
 const SchemaVersion = 1
 
 type Device struct {
-	ID        string
-	Name      string
-	Platform  string
-	CreatedAt int64
+	ID         string
+	Name       string
+	Platform   string
+	CreatedAt  int64
+	LastSeenAt int64
 }
 
 type SessionSummary struct {
@@ -202,19 +203,61 @@ values(?,?,?,?,?,?,0,?,0)`,
 func (s *Store) DeviceByAccess(token string) (*Device, error) {
 	var d Device
 	err := s.db.QueryRow(`
-select d.id,d.name,d.platform,d.created_at
+select d.id,d.name,d.platform,d.created_at,d.last_seen_at
 from auth_sessions a join devices d on d.id=a.device_id
 where a.access_hash=? and a.revoked_at=0 and a.access_expires_at>?`,
 		hashToken(token), time.Now().UnixMilli()).
-		Scan(&d.ID, &d.Name, &d.Platform, &d.CreatedAt)
+		Scan(&d.ID, &d.Name, &d.Platform, &d.CreatedAt, &d.LastSeenAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, apierr.New(401, "UNAUTHORIZED", "invalid or expired access token")
 	}
 	if err != nil {
 		return nil, err
 	}
-	_, _ = s.db.Exec(`update auth_sessions set last_used_at=? where access_hash=?`, model.NowMS(), hashToken(token))
+	now := model.NowMS()
+	_, _ = s.db.Exec(`update auth_sessions set last_used_at=? where access_hash=?`, now, hashToken(token))
+	_, _ = s.db.Exec(`update devices set last_seen_at=? where id=?`, now, d.ID)
+	d.LastSeenAt = now
 	return &d, nil
+}
+
+// ListDevices returns all devices known to this server. There is no account
+// concept here: sessionsvr is single-tenant, so every paired device belongs to
+// the same user.
+func (s *Store) ListDevices() ([]Device, error) {
+	rows, err := s.db.Query(`select id,name,platform,created_at,last_seen_at from devices order by last_seen_at desc, created_at desc`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Device
+	for rows.Next() {
+		var d Device
+		if err := rows.Scan(&d.ID, &d.Name, &d.Platform, &d.CreatedAt, &d.LastSeenAt); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// RevokeDevice deletes the device row; auth_sessions has ON DELETE CASCADE,
+// so every access/refresh token for that device stops working immediately.
+// Sessions owned by the device are kept (now read-only to that device; another
+// device can claim them).
+func (s *Store) RevokeDevice(deviceID string) error {
+	res, err := s.db.Exec(`delete from devices where id=?`, deviceID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return apierr.New(404, "DEVICE_NOT_FOUND", "device not found")
+	}
+	return nil
 }
 
 func (s *Store) RotateRefresh(token string, accessTTL, refreshTTL time.Duration) (string, string, int64, *Device, error) {

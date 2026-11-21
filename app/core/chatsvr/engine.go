@@ -151,11 +151,12 @@ func (a *App) Bootstrap() (map[string]any, error) {
 	}
 	set := a.Settings()
 	autoStart, autoStartSupported := a.autoStartView()
-	server := map[string]any{"paired": false, "url": "", "deviceId": ""}
+	server := map[string]any{"paired": false, "url": "", "deviceId": "", "kind": ""}
 	if s := a.Sync(); s != nil {
 		server["paired"] = true
 		server["url"] = s.BaseURL
 		server["deviceId"] = s.DeviceID
+		server["kind"] = a.serverKind(s.BaseURL)
 	}
 	return map[string]any{
 		"device": map[string]any{"id": a.deviceID, "name": a.device},
@@ -170,9 +171,22 @@ func (a *App) Bootstrap() (map[string]any, error) {
 			"autoStartSupported": autoStartSupported,
 			"deviceName":         set.DeviceName,
 		},
-		"server":   server,
-		"sessions": views,
+		"server": server,
+		// 注册与找回密码在 cloudsvr 的网页上，客户端只负责把地址给前端拼链接
+		"officialBaseUrl": OfficialBaseURL,
+		"sessions":        views,
 	}, nil
+}
+
+func (a *App) serverKind(baseURL string) string {
+	kind, _ := a.store.KV("server_kind")
+	if kind == "official" || kind == "selfHosted" {
+		return kind
+	}
+	if strings.TrimRight(baseURL, "/") == strings.TrimRight(OfficialBaseURL, "/") {
+		return "official"
+	}
+	return "selfHosted"
 }
 
 func (a *App) transferState(s model.Session, hasFragment, pending bool) string {

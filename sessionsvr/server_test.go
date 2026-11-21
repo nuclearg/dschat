@@ -107,3 +107,49 @@ func TestRPCOpenTurnCarriesData(t *testing.T) {
 		t.Fatalf("open turn data = %+v", res["data"])
 	}
 }
+
+func TestRPCDeviceListAndRevoke(t *testing.T) {
+	srv, err := New(Config{Data: t.TempDir(), Password: "pw"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	login := func(device string) (string, string) {
+		res := rpc(t, ts, "", "", "auth.login", map[string]string{
+			"password": "pw", "deviceId": device, "name": device, "platform": "test",
+		})
+		data := res["data"].(map[string]any)
+		return data["accessToken"].(string), data["deviceId"].(string)
+	}
+	access1, device1 := login("d1")
+	access2, device2 := login("d2")
+
+	list := rpc(t, ts, "", access1, "devices.list", map[string]any{})
+	if list["success"] != true {
+		t.Fatalf("devices.list = %+v", list)
+	}
+	data := list["data"].(map[string]any)
+	if data["currentDeviceId"] != device1 {
+		t.Fatalf("currentDeviceId = %v, want %s", data["currentDeviceId"], device1)
+	}
+	if len(data["devices"].([]any)) != 2 {
+		t.Fatalf("devices = %+v", data["devices"])
+	}
+
+	if res := rpc(t, ts, "", access1, "devices.revoke", map[string]string{"deviceId": device1}); res["success"] != false {
+		t.Fatalf("current device revoke should fail: %+v", res)
+	}
+	if res := rpc(t, ts, "", access1, "devices.revoke", map[string]string{"deviceId": device2}); res["success"] != true {
+		t.Fatalf("revoke = %+v", res)
+	}
+	if res := rpc(t, ts, "", access2, "sessions.list", map[string]any{}); res["success"] != false || res["errCode"] != "Unauthorized" {
+		t.Fatalf("revoked access token still works: %+v", res)
+	}
+	list = rpc(t, ts, "", access1, "devices.list", map[string]any{})
+	if len(list["data"].(map[string]any)["devices"].([]any)) != 1 {
+		t.Fatalf("device not removed: %+v", list)
+	}
+}

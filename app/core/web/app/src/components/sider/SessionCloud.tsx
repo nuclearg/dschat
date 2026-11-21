@@ -1,4 +1,6 @@
 import { useTranslate } from '../../i18n/index.js'
+import { Tooltip } from '../base/Tooltip.js'
+import { blockedStatusText } from './syncStatus.js'
 import type { SessionSummary } from '../../services/chat/types.js'
 import styles from './SessionCloud.module.css'
 
@@ -43,29 +45,22 @@ export const SessionCloud = ({ session, paired, localDeviceId }: Props) => {
               ? t('sessionCloudLocal')
               : t(owned ? 'sessionCloudOwnedSynced' : 'sessionCloudRemote')
 
-  const blockedReason = (reason: string | undefined) => {
-    switch (reason) {
-      case 'auth':
-        return t('sessionCloudBlockedAuth')
-      case 'limit':
-        return t('sessionCloudBlockedLimit')
-      case 'network':
-        return t('sessionCloudBlockedNetwork')
-      case 'server':
-        return t('sessionCloudBlockedServer')
-      case 'sync':
-        return t('sessionCloudBlockedSync')
-      default:
-        return ''
-    }
-  }
+  const blocked = blockedStatusText(t, session.blockedReason, session.blockedDetail)
+  const ariaLabel =
+    state === 'blocked' ? blocked.ariaLabel : label
   const tooltip =
-    state === 'blocked'
-      ? [label, blockedReason(session.blockedReason), session.blockedDetail].filter(Boolean).join('\n')
-      : label
+    state === 'blocked' ? (
+      <div className={styles.tooltip}>
+        <div className={styles.tooltipTitle}>{blocked.title}</div>
+        {blocked.detail ? <div className={styles.tooltipDetail}>{blocked.detail}</div> : null}
+      </div>
+    ) : (
+      label
+    )
 
   return (
-    <span className={styles.status} role="img" aria-label={tooltip} title={tooltip}>
+    <Tooltip content={tooltip}>
+      <span className={styles.status} role="img" aria-label={ariaLabel}>
       <svg width={16} height={16} viewBox="0 0 16 16" fill="none" aria-hidden="true">
         <path
           d={CloudPath}
@@ -99,6 +94,7 @@ export const SessionCloud = ({ session, paired, localDeviceId }: Props) => {
           </svg>
         </span>
       ) : null}
-    </span>
+      </span>
+    </Tooltip>
   )
 }

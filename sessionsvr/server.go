@@ -90,6 +90,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/auth.login", s.handleLogin)
 	mux.HandleFunc("POST /v1/auth.refresh", s.handleRefresh)
 	mux.HandleFunc("POST /v1/auth.logout", s.handleLogout)
+	mux.HandleFunc("POST /v1/devices.list", s.auth(s.handleDevicesList))
+	mux.HandleFunc("POST /v1/devices.revoke", s.auth(s.handleRevokeDevice))
 	mux.HandleFunc("POST /v1/stream", s.auth(s.handleStream))
 
 	mux.HandleFunc("POST /v1/sessions.create", s.auth(s.handleCreateSession))
@@ -103,6 +105,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/attachments.put", s.auth(s.handlePutAttachment))
 	mux.HandleFunc("POST /v1/attachments.head", s.auth(s.handleHeadAttachment))
 	mux.HandleFunc("POST /v1/attachments.get", s.auth(s.handleGetAttachment))
+	mux.HandleFunc("POST /v1/attachments.getUploadUrl", s.auth(s.handlePrepareUpload))
+	mux.HandleFunc("POST /v1/attachments.finishUpload", s.auth(s.handleFinishUpload))
+	mux.HandleFunc("POST /v1/attachments.getDownloadUrl", s.auth(s.handlePrepareDownload))
 	mux.HandleFunc("/v1/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeFail(w, langOf(r), "MethodNotAllowed", localize(langOf(r), "METHOD_NOT_ALLOWED", "only POST is supported"), nil)
@@ -366,6 +371,71 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, map[string]any{})
 }
 
+// ---- Devices ---------------------------------------------------------------
+
+type deviceView struct {
+	DeviceID string `json:"deviceId"`
+	Name     string `json:"name"`
+	Platform string `json:"platform"`
+	LastSeen int64  `json:"lastSeen"`
+	Current  bool   `json:"current"`
+}
+
+func (s *Server) handleDevicesList(w http.ResponseWriter, r *http.Request) {
+	current := deviceFrom(r)
+	devices, err := s.store.ListDevices()
+	if err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	views := make([]deviceView, 0, len(devices))
+	for _, d := range devices {
+		views = append(views, deviceView{
+			DeviceID: d.ID,
+			Name:     d.Name,
+			Platform: d.Platform,
+			LastSeen: d.LastSeenAt,
+			Current:  current != nil && d.ID == current.ID,
+		})
+	}
+	writeOK(w, map[string]any{
+		"currentDeviceId": func() string {
+			if current == nil {
+				return ""
+			}
+			return current.ID
+		}(),
+		"devices": views,
+	})
+}
+
+func (s *Server) handleRevokeDevice(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		DeviceID string `json:"deviceId"`
+	}
+	if err := httpx.ReadJSON(w, r, &req); err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	if strings.TrimSpace(req.DeviceID) == "" {
+		writeFail(w, langOf(r), "IllegalArguments", localize(langOf(r), "ILLEGAL_ARGUMENTS", "deviceId is required"), nil)
+		return
+	}
+	current := deviceFrom(r)
+	if current != nil && current.ID == req.DeviceID {
+		writeFail(w, langOf(r), "IllegalArguments", localize(langOf(r), "DEVICE_CURRENT", "cannot revoke current device"), nil)
+		return
+	}
+	if err := s.store.RevokeDevice(req.DeviceID); err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	// 踢下线不能只靠 token：长连接可能还挂着。关掉该设备的 SSE，下一次重连
+	// 就会因为 token 已删而得到 Unauthorized。
+	s.hub.closeDevice(req.DeviceID)
+	writeOK(w, map[string]any{})
+}
+
 // ---- Sessions --------------------------------------------------------------
 
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
@@ -526,6 +596,75 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 
 // ---- Attachments -----------------------------------------------------------
 
+// prepareUpload 是两阶段协议的第一跳。自建服务器没有 OSS，返回一个指向
+// 自己的相对 URL；客户端会继续向该 URL POST multipart，所以数据面与旧客户端一致。
+func (s *Server) handlePrepareUpload(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID        string `json:"id"`
+		SessionID string `json:"sessionId"`
+		Name      string `json:"name"`
+		MIME      string `json:"mime"`
+		Size      int64  `json:"size"`
+	}
+	if err := httpx.ReadJSON(w, r, &req); err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	if strings.TrimSpace(req.ID) == "" {
+		writeFail(w, langOf(r), "InvalidAttachment", localize(langOf(r), "INVALID_ATTACHMENT", "attachment id is required"), nil)
+		return
+	}
+	if req.Size <= 0 || req.Size > maxAttachmentSize {
+		writeFail(w, langOf(r), "FileTooLarge", localize(langOf(r), "FILE_TOO_LARGE", "attachment is too large"), map[string]any{"limit": maxAttachmentSize})
+		return
+	}
+	writeOK(w, map[string]any{
+		"url":       "/v1/attachments.put",
+		"method":    http.MethodPost,
+		"headers":   map[string]string{},
+		"multipart": true,
+	})
+}
+
+func (s *Server) handleFinishUpload(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := httpx.ReadJSON(w, r, &req); err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	meta, err := s.store.AttachmentMeta(strings.TrimSpace(req.ID))
+	if err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	writeOK(w, map[string]any{"attachment": meta})
+}
+
+func (s *Server) handlePrepareDownload(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		AttachmentID string `json:"attachmentId"`
+	}
+	if err := httpx.ReadJSON(w, r, &req); err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	meta, err := s.store.AttachmentMeta(strings.TrimSpace(req.AttachmentID))
+	if err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	writeOK(w, map[string]any{
+		"url":     "/v1/attachments.get",
+		"method":  http.MethodPost,
+		"headers": map[string]string{"Content-Type": "application/json"},
+		"body":    map[string]string{"attachmentId": meta.ID},
+		"name":    meta.Name,
+		"mime":    meta.MIME,
+	})
+}
+
 func (s *Server) handlePutAttachment(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(72 << 20); err != nil {
 		writeFail(w, langOf(r), "IllegalArguments", localize(langOf(r), "BAD_REQUEST", err.Error()), nil)
@@ -626,8 +765,8 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(200)
 
-	ch := s.hub.subscribe()
-	defer s.hub.unsubscribe(ch)
+	sub := s.hub.subscribe(deviceFrom(r).ID)
+	defer s.hub.unsubscribe(sub)
 
 	writeSSEResult(w, map[string]any{"type": "hello", "protocol": ProtocolVersion, "serverId": s.serverID})
 	flusher.Flush()
@@ -638,7 +777,9 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
-		case msg, ok := <-ch:
+		case <-sub.done:
+			return
+		case msg, ok := <-sub.ch:
 			if !ok {
 				return
 			}
@@ -659,25 +800,49 @@ func writeSSEResult(w http.ResponseWriter, data any) {
 	fmt.Fprintf(w, "data: %s\n\n", b)
 }
 
+type hubSub struct {
+	deviceID string
+	ch       chan []byte
+	done     chan struct{}
+}
+
 type hub struct {
 	mu   sync.Mutex
-	subs map[chan []byte]struct{}
+	subs map[*hubSub]struct{}
 }
 
-func newHub() *hub { return &hub{subs: map[chan []byte]struct{}{}} }
+func newHub() *hub { return &hub{subs: map[*hubSub]struct{}{}} }
 
-func (h *hub) subscribe() chan []byte {
-	ch := make(chan []byte, 64)
+func (h *hub) subscribe(deviceID string) *hubSub {
+	sub := &hubSub{
+		deviceID: deviceID,
+		ch:       make(chan []byte, 64),
+		done:     make(chan struct{}),
+	}
 	h.mu.Lock()
-	h.subs[ch] = struct{}{}
+	h.subs[sub] = struct{}{}
 	h.mu.Unlock()
-	return ch
+	return sub
 }
 
-func (h *hub) unsubscribe(ch chan []byte) {
+func (h *hub) unsubscribe(sub *hubSub) {
 	h.mu.Lock()
-	delete(h.subs, ch)
+	delete(h.subs, sub)
 	h.mu.Unlock()
+}
+
+// closeDevice terminates every SSE connection belonging to a revoked device.
+// Closing done (rather than ch) lets the stream handler return and run its
+// normal cleanup without racing a broadcaster that still holds a reference.
+func (h *hub) closeDevice(deviceID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for sub := range h.subs {
+		if sub.deviceID == deviceID {
+			close(sub.done)
+			delete(h.subs, sub)
+		}
+	}
 }
 
 func (h *hub) broadcast(event map[string]any) {
@@ -687,9 +852,9 @@ func (h *hub) broadcast(event map[string]any) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for ch := range h.subs {
+	for sub := range h.subs {
 		select {
-		case ch <- b:
+		case sub.ch <- b:
 		default:
 		}
 	}

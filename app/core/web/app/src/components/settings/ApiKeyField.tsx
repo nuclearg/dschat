@@ -118,7 +118,11 @@ export const ApiKeyField = ({ editor }: { editor: ApiKeyEditor }) => {
             <GetApiKeyLink label={t('apiKeyGuideGet')} />
           </div>
         ) : null}
-        {showInput ? <div className={styles.apiKeyHint}>{t('apiKeyHint')}</div> : null}
+        {showInput ? (
+          <div className={styles.apiKeyHint}>
+            {apiKey ? t('apiKeySavedHint') : t('apiKeyHint')}
+          </div>
+        ) : null}
       </div>
     </div>
   )

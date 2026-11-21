@@ -75,3 +75,19 @@
     border-right-color: currentColor;
   }
 }
+
+.tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 280px;
+  text-align: left;
+}
+
+.tooltipTitle {
+  font-weight: 500;
+}
+
+.tooltipDetail {
+  opacity: 0.78;
+}

@@ -3,6 +3,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 APP=dist/Dschat.app
+OFFICIAL_BASE_URL="${OFFICIAL_BASE_URL:-http://cloudsvr.nuclearg.info:80}"
+LDFLAGS="-s -w -X 'dschat/app/core/chatsvr.OfficialBaseURL=${OFFICIAL_BASE_URL}'"
 # Binaries built with Go 1.26/1.25 can target macOS 12; Go 1.27 requires 13.
 # Keep cgo and the Go linker on the same deployment target so the Mach-O
 # LC_BUILD_VERSION does not inherit the build machine's SDK version.
@@ -15,11 +17,11 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 ARCH="${MACOS_ARCH:-universal}"
 if [[ "$ARCH" == "arm64" ]]; then
-  CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o "$APP/Contents/MacOS/dschat" ./app/osx
+  CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="$LDFLAGS" -o "$APP/Contents/MacOS/dschat" ./app/osx
 else
   TMPBIN="$(mktemp -d)"
-  CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -o "$TMPBIN/dschat-arm64" ./app/osx
-  CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -o "$TMPBIN/dschat-amd64" ./app/osx
+  CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="$LDFLAGS" -o "$TMPBIN/dschat-arm64" ./app/osx
+  CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags="$LDFLAGS" -o "$TMPBIN/dschat-amd64" ./app/osx
   lipo -create "$TMPBIN/dschat-arm64" "$TMPBIN/dschat-amd64" -output "$APP/Contents/MacOS/dschat"
   rm -rf "$TMPBIN"
 fi

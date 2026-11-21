@@ -2,6 +2,9 @@ declare const styles: {
   readonly "wrapper": string;
   readonly "session": string;
   readonly "home": string;
+  readonly "syncBlocked": string;
+  readonly "syncBlockedTitle": string;
+  readonly "syncBlockedDetail": string;
   readonly "attachments": string;
   readonly "attachment": string;
   readonly "remove": string;

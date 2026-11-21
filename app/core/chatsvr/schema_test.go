@@ -42,7 +42,31 @@ func TestLocalSchemaV1(t *testing.T) {
 	if err := app.store.db.QueryRow(`select v from kv where k='schema_version'`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != "1" {
+	if version != "2" {
 		t.Fatalf("schema version = %q", version)
+	}
+}
+
+func TestLegacySessionsGetsServerIDColumn(t *testing.T) {
+	db, err := sql.Open("sqlite", t.TempDir()+"/legacy.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`create table sessions (
+		id text primary key, title text not null default '', owner_device_id text not null,
+		sync_state text not null default 'local', created_at integer not null, updated_at integer not null
+	)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := initSchema(db); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := db.QueryRow(`select count(*) from pragma_table_info('sessions') where name='server_id'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("server_id column count = %d", count)
 	}
 }

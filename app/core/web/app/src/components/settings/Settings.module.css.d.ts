@@ -4,6 +4,8 @@ declare const styles: {
   readonly "navigation": string;
   readonly "navItem": string;
   readonly "navItemActive": string;
+  readonly "navIcon": string;
+  readonly "navIconUnavailable": string;
   readonly "content": string;
   readonly "cell": string;
   readonly "row": string;
@@ -15,10 +17,6 @@ declare const styles: {
   readonly "provinceSelect": string;
   readonly "citySelect": string;
   readonly "regionSelect": string;
-  readonly "theme": string;
-  readonly "themeOptions": string;
-  readonly "themeOption": string;
-  readonly "themeOptionSelected": string;
   readonly "description": string;
   readonly "error": string;
   readonly "apiKey": string;
@@ -41,6 +39,24 @@ declare const styles: {
   readonly "switch": string;
   readonly "switchOn": string;
   readonly "switchThumb": string;
+  readonly "serverLinkButton": string;
+  readonly "accountPanel": string;
+  readonly "accountHeader": string;
+  readonly "accountTitle": string;
+  readonly "accountHint": string;
+  readonly "refreshButton": string;
+  readonly "accountMuted": string;
+  readonly "deviceRow": string;
+  readonly "deviceInfo": string;
+  readonly "deviceName": string;
+  readonly "currentBadge": string;
+  readonly "deviceMeta": string;
+  readonly "removeDeviceButton": string;
+  readonly "accountGrid": string;
+  readonly "accountRow": string;
+  readonly "storageBar": string;
+  readonly "storageFill": string;
+  readonly "accountConfirmText": string;
 };
 export = styles;
 

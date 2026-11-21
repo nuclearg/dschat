@@ -1,12 +1,9 @@
 import clsx from 'clsx'
 import { useRef, useState, type ReactNode } from 'react'
 import {
-  IconDarkOutline16,
   IconDataOutline16,
   IconCloudOutline16,
-  IconFollowsystemOutline16,
   IconKeyOutline16,
-  IconLightOutline16,
   IconRightUpOutline14,
   IconSettingsOutline16,
   IconUploadOutline14,
@@ -35,6 +32,9 @@ import { Modal } from '../base/Modal.js'
 import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
 import { ApiKeyConfirm, ApiKeyField, useApiKeyEditor } from './ApiKeyField.js'
+import { OfficialSync } from './OfficialSync.js'
+import { OfficialAccountInfo } from './OfficialAccountInfo.js'
+import { ServerDevices } from './ServerDevices.js'
 import { closeSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
 import styles from './Settings.module.css'
 
@@ -78,6 +78,8 @@ const SettingsContent = () => {
   const apiKeyEditor = useApiKeyEditor()
   const historyImport = useHistoryImport()
   const historyDelete = useHistoryDelete()
+  const apiKey = useSettings((state) => state.apiKey)
+  const server = useChatStore((state) => state.server)
   const replacingHistory = useChatStore((state) => state.importingHistory)
   const historyBusy = historyImport.busy || historyDelete.busy || replacingHistory
   return (
@@ -94,19 +96,39 @@ const SettingsContent = () => {
         }}
       >
         <div role="tablist" className={styles.navigation}>
-          {sections.map((item) => (
-            <button
-              key={item.value}
-              type="button"
-              role="tab"
-              aria-selected={section === item.value}
-              className={clsx(styles.navItem, section === item.value && styles.navItemActive)}
-              onClick={() => setSection(item.value)}
-            >
-              {item.icon}
-              {t(item.label)}
-            </button>
-          ))}
+          {sections.map((item) => {
+            const unavailable =
+              (item.value === 'account' && !apiKey) || (item.value === 'sync' && !server.paired)
+            const unavailableLabel =
+              item.value === 'account'
+                ? t('settingsApiKeyNotConfigured')
+                : item.value === 'sync'
+                  ? t('settingsSyncNotConnected')
+                  : ''
+            return (
+              <button
+                key={item.value}
+                type="button"
+                role="tab"
+                aria-selected={section === item.value}
+                className={clsx(styles.navItem, section === item.value && styles.navItemActive)}
+                onClick={() => setSection(item.value)}
+              >
+                <span
+                  className={clsx(styles.navIcon, unavailable && styles.navIconUnavailable)}
+                  title={unavailable ? unavailableLabel : undefined}
+                  aria-label={unavailable ? unavailableLabel : undefined}
+                >
+                  {item.icon}
+                </span>
+                {unavailable
+                  ? t(item.value === 'account'
+                      ? 'settingDialogAsideAccountOptionLabelUnavailable'
+                      : 'settingDialogAsideSyncOptionLabelUnavailable')
+                  : t(item.label)}
+              </button>
+            )
+          })}
         </div>
         <div role="tabpanel" className={styles.content}>
           {section === 'general' ? (
@@ -428,54 +450,35 @@ const ImportConfirm = ({
   )
 }
 
-const themeOptions: { value: ThemePreference; label: TranslationKey; icon: ReactNode }[] = [
-  {
-    value: 'light',
-    label: 'avatarMenuSettingsDialogThemeSelectLightOption',
-    icon: <IconLightOutline16 />,
-  },
-  {
-    value: 'dark',
-    label: 'avatarMenuSettingsDialogThemeSelectDarkOption',
-    icon: <IconDarkOutline16 />,
-  },
-  {
-    value: 'system',
-    label: 'avatarMenuSettingsDialogThemeSelectSystemOption',
-    icon: <IconFollowsystemOutline16 />,
-  },
+const themeOptions: { value: ThemePreference; label: TranslationKey }[] = [
+  { value: 'light', label: 'avatarMenuSettingsDialogThemeSelectLightOption' },
+  { value: 'dark', label: 'avatarMenuSettingsDialogThemeSelectDarkOption' },
+  { value: 'system', label: 'avatarMenuSettingsDialogThemeSelectSystemOption' },
 ]
 
 /**
- * 主题项：标题下方浅色 / 深色 / 跟随系统三个选块。
- * 与下方语言选项连续排列。
+ * 主题项：朴素的系统下拉框，和语言/音色等设置项保持同一行布局。
  */
 const ThemeSetting = () => {
   const t = useTranslate()
   const themePreference = useSettings((state) => state.themePreference)
   const label = t('avatarMenuSettingsDialogThemeItemLabel')
   return (
-    <div className={styles.theme}>
-      {label}
-      <div role="radiogroup" aria-label={label} className={styles.themeOptions}>
-        {themeOptions.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            role="radio"
-            aria-checked={themePreference === option.value}
-            className={clsx(
-              styles.themeOption,
-              themePreference === option.value && styles.themeOptionSelected
-            )}
-            onClick={() => setThemePreference(option.value)}
-          >
-            {option.icon}
-            {t(option.label)}
-          </button>
-        ))}
-      </div>
-    </div>
+    <SettingCell
+      label={label}
+      status={null}
+      action={
+        <Select
+          ariaLabel={label}
+          value={themePreference}
+          options={themeOptions.map((option) => ({
+            value: option.value,
+            label: t(option.label),
+          }))}
+          onChange={setThemePreference}
+        />
+      }
+    />
   )
 }
 
@@ -566,6 +569,8 @@ const SessionsvrSetting = () => {
   const [confirmEmpty, setConfirmEmpty] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // 官方是产品主路径（地址内置、只要手机号密码）；自建是给愿意自己部署的人
+  const [mode, setMode] = useState<'official' | 'selfHosted'>('official')
 
   const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
@@ -616,7 +621,9 @@ const SessionsvrSetting = () => {
             <input
               type="radio"
               name="sessionsvr-mode"
-              disabled
+              checked={mode === 'official'}
+              onChange={() => setMode('official')}
+              disabled={server.paired}
             />
             <span>{t('syncOfficial')}</span>
           </label>
@@ -625,7 +632,9 @@ const SessionsvrSetting = () => {
               <input
                 type="radio"
                 name="sessionsvr-mode"
-                defaultChecked
+                checked={mode === 'selfHosted'}
+                onChange={() => setMode('selfHosted')}
+                disabled={server.paired}
               />
               <span>{t('syncSelfHosted')}</span>
             </label>
@@ -643,13 +652,19 @@ const SessionsvrSetting = () => {
           </div>
         </div>
         {server.paired ? (
-          <div className={styles.serverStatus}>
-            <strong>{t('syncConnected')}</strong>
-            <span>{server.url}</span>
-            <Button variant="outlined" size="s" onClick={() => void disconnectNow()} disabled={busy}>
-              {t('syncDisconnect')}
-            </Button>
-          </div>
+          <>
+            <div className={styles.serverStatus}>
+              <strong>{t('syncConnected')}</strong>
+              <span>{server.url}</span>
+              <Button variant="outlined" size="s" onClick={() => void disconnectNow()} disabled={busy}>
+                {t('syncDisconnect')}
+              </Button>
+            </div>
+            <ServerDevices />
+            {server.kind === 'official' ? <OfficialAccountInfo /> : null}
+          </>
+        ) : mode === 'official' ? (
+          <OfficialSync />
         ) : (
           <>
             <div className={styles.serverForm}>

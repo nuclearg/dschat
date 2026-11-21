@@ -31,6 +31,29 @@
   }
 }
 
+.syncBlocked {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 10px 12px 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 77, 79, 0.24);
+  border-radius: 10px;
+  background: rgba(255, 77, 79, 0.08);
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 18px;
+  cursor: default;
+}
+
+.syncBlockedTitle {
+  font-weight: 500;
+}
+
+.syncBlockedDetail {
+  color: var(--dsw-alias-label-secondary);
+}
+
 .attachments {
   display: flex;
   align-items: flex-end;

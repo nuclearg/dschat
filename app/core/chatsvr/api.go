@@ -52,7 +52,13 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/settings", a.auth(a.handleSaveSettings))
 	mux.HandleFunc("POST /api/settings/verify", a.auth(a.handleVerifyKey))
 	mux.HandleFunc("POST /api/server/login", a.auth(a.handleServerLogin))
+	// 官方模式：地址内置，客户端只有登录一个入口；
+	// 注册与找回密码在 cloudsvr 的网页上（/register、/reset），客户端不参与。
+	mux.HandleFunc("POST /api/server/officialLogin", a.auth(a.handleOfficialLogin))
 	mux.HandleFunc("POST /api/server/disconnect", a.auth(a.handleDisconnect))
+	mux.HandleFunc("GET /api/server/devices", a.auth(a.handleServerDevices))
+	mux.HandleFunc("DELETE /api/server/devices/{id}", a.auth(a.handleRevokeServerDevice))
+	mux.HandleFunc("GET /api/server/account", a.auth(a.handleServerAccount))
 	mux.HandleFunc("GET /api/llm/models", a.auth(a.handleProxy))
 	mux.HandleFunc("POST /api/llm/anthropic/v1/messages", a.auth(a.handleProxy))
 	mux.HandleFunc("POST /api/llm/anthropic/v1/files", a.auth(a.handleProxy))
@@ -402,11 +408,12 @@ func (a *App) handleSettings(w http.ResponseWriter, _ *http.Request) {
 
 func (a *App) settingsView() map[string]any {
 	set := a.Settings()
-	server := map[string]any{"paired": false, "url": "", "deviceId": ""}
+	server := map[string]any{"paired": false, "url": "", "deviceId": "", "kind": ""}
 	if s := a.Sync(); s != nil {
 		server["paired"] = true
 		server["url"] = s.BaseURL
 		server["deviceId"] = s.DeviceID
+		server["kind"] = a.serverKind(s.BaseURL)
 	}
 	autoStart, autoStartSupported := a.autoStartView()
 	return map[string]any{
@@ -451,7 +458,23 @@ func (a *App) handleVerifyKey(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	client := deepseek.New(a.Settings().BaseURL, req.APIKey)
 	if err := client.VerifyKey(ctx); err != nil {
-		apierr.Write(w, apierr.New(401, "INVALID_KEY", err.Error()))
+		// 不要把网络超时、余额不足、限流都折叠成「Key 无效」：用户会以为
+		// 自己的密钥坏了，实际上是另一类故障，重试或充值才对。
+		var apiErr *deepseek.APIError
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			apierr.Write(w, apierr.New(504, "VERIFY_TIMEOUT", err.Error()))
+		case errors.As(err, &apiErr) && apiErr.Status == 401:
+			apierr.Write(w, apierr.New(401, "INVALID_KEY", err.Error()))
+		case errors.As(err, &apiErr) && apiErr.Status == 402:
+			apierr.Write(w, apierr.New(402, "INSUFFICIENT_BALANCE", err.Error()))
+		case errors.As(err, &apiErr) && apiErr.Status == 429:
+			apierr.Write(w, apierr.New(429, "RATE_LIMITED", err.Error()))
+		case errors.As(err, &apiErr) && apiErr.Status >= 500:
+			apierr.Write(w, apierr.New(502, "UPSTREAM_ERROR", err.Error()))
+		default:
+			apierr.Write(w, apierr.New(502, "VERIFY_FAILED", err.Error()))
+		}
 		return
 	}
 	httpx.WriteJSON(w, 200, map[string]any{"ok": true})
@@ -540,19 +563,71 @@ func (a *App) handleServerLogin(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	res, err := Login(ctx, u.String(), req.Password, req.Name, runtime.GOOS, a.deviceID, a.currentLanguage())
 	if err != nil {
-		message := err.Error()
-		var remote *RemoteError
-		if errors.As(err, &remote) && remote.Message != "" {
-			message = remote.Message
-		}
-		apierr.Write(w, apierr.New(400, "LOGIN_FAILED", message))
+		apierr.Write(w, remoteAPIError(err))
 		return
 	}
+	base := strings.TrimRight(u.String(), "/")
+	if err := a.pairServer(base, res, "selfHosted"); err != nil {
+		apierr.Write(w, err)
+		return
+	}
+	httpx.WriteJSON(w, 200, map[string]any{"paired": true, "url": base, "deviceId": res.DeviceID, "kind": "selfHosted"})
+}
+
+// handleOfficialLogin 官方模式登录：手机号 + 密码，地址用内置的 OfficialBaseURL。
+func (a *App) handleOfficialLogin(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Phone    string `json:"phone"`
+		Password string `json:"password"`
+		Name     string `json:"name"`
+	}
+	if err := httpx.ReadJSON(w, r, &req); err != nil {
+		apierr.Write(w, err)
+		return
+	}
+	if strings.TrimSpace(req.Phone) == "" || req.Password == "" {
+		apierr.Write(w, apierr.New(400, "BAD_REQUEST", "phone and password are required"))
+		return
+	}
+	if req.Name == "" {
+		req.Name = a.device
+	}
+	ctx, cancel := context.WithTimeout(a.baseCtx(), officialTimeout)
+	defer cancel()
+	res, err := LoginOfficial(ctx, OfficialBaseURL, normalizePhone(req.Phone), req.Password,
+		req.Name, runtime.GOOS, a.deviceID, a.currentLanguage())
+	if err != nil {
+		apierr.Write(w, remoteAPIError(err))
+		return
+	}
+	if err := a.pairServer(OfficialBaseURL, res, "official"); err != nil {
+		apierr.Write(w, err)
+		return
+	}
+	httpx.WriteJSON(w, 200, map[string]any{"paired": true, "url": OfficialBaseURL, "deviceId": res.DeviceID, "kind": "official"})
+}
+
+// handleOfficialSendCode 注册前置：请求云端发送短信验证码。
+//
+// 人机验证在云端做：captchaVerifyParam 原样透传，不在客户端判通过与否——
+// 客户端判等于把闸门交给攻击者。
+
+// handleOfficialRegister 官方模式注册：手机号 + 验证码 + 密码，成功后直接是登录态。
+
+// handleOfficialResetPassword 找回密码：手机号 + 验证码 + 新密码。
+//
+// 成功后云端已吊销该账号其他设备的 token，本设备拿到的是新的登录态，所以走同一套配对流程。
+
+// pairServer 把一次成功登录的结果落到本地：切换服务器、保存 token、起 SSE 与首次全量同步。
+//
+// 自建与官方两条路径共用同一段落库逻辑——两处各写一遍的话，"切服务器时把旧会话降级为本地"
+// 这种容易漏的规则迟早只在一处生效。
+func (a *App) pairServer(base string, res *LoginResult, kind string) error {
 	a.cancelActiveTurns()
 	if old := a.Sync(); old != nil {
 		old.Close()
 	}
-	base := strings.TrimRight(u.String(), "/")
+	base = strings.TrimRight(base, "/")
 	oldServerID, _ := a.store.KV("server_id")
 	oldURL, _ := a.store.KV("last_server_url")
 	if oldURL == "" {
@@ -569,20 +644,20 @@ func (a *App) handleServerLogin(w http.ResponseWriter, r *http.Request) {
 		serverChanged = strings.TrimRight(oldURL, "/") != base
 	}
 	if serverChanged {
-		// Never let the new sessionsvr's list reconcile away sessions that
-		// belong to the previous server. Keep them as local conversations.
+		// Never let the new server's list reconcile away sessions that belong to
+		// the previous server. Keep them as local conversations.
 		detachedOwner := res.DeviceID
 		if detachedOwner == "" {
 			detachedOwner = a.deviceID
 		}
 		if err := a.store.DetachSyncedSessions(detachedOwner); err != nil {
-			apierr.Write(w, err)
-			return
+			return err
 		}
 		a.emit(map[string]any{"type": "sessions_changed"})
 	}
 	_ = a.store.SetKV("server_url", base)
 	_ = a.store.SetKV("last_server_url", base)
+	_ = a.store.SetKV("server_kind", kind)
 	_ = a.store.SetKV("server_id", newServerID)
 	_ = a.store.SetKV("server_device_id", res.DeviceID)
 	a.saveServerTokens(res.AccessToken, res.RefreshToken, res.AccessExpiresAt)
@@ -593,7 +668,73 @@ func (a *App) handleServerLogin(w http.ResponseWriter, r *http.Request) {
 	a.setSync(s)
 	go s.Run(a.baseCtx(), a.onRemoteEvent, func() { go a.syncAll(a.baseCtx()) })
 	go a.syncAll(a.baseCtx())
-	httpx.WriteJSON(w, 200, map[string]any{"paired": true, "url": s.BaseURL, "deviceId": res.DeviceID})
+	return nil
+}
+
+// remoteAPIError 把云端的业务错误原样透出：前端按 errCode 决定把用户导回哪一步
+// （验证码错 → 停在验证码；手机号已注册 → 提示去登录；人机验证未通过 → 重弹滑块）。
+func remoteAPIError(err error) error {
+	var remote *RemoteError
+	if errors.As(err, &remote) && remote.Code != "" {
+		message := remote.Message
+		if message == "" {
+			message = remote.Code
+		}
+		return apierr.New(400, remote.Code, message)
+	}
+	return apierr.New(400, "REMOTE_ERROR", err.Error())
+}
+
+func (a *App) handleServerDevices(w http.ResponseWriter, r *http.Request) {
+	s := a.Sync()
+	if s == nil {
+		apierr.Write(w, apierr.New(409, "NOT_PAIRED", "sync server is not connected"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(a.baseCtx(), 20*time.Second)
+	defer cancel()
+	res, err := s.ListDevices(ctx)
+	if err != nil {
+		apierr.Write(w, remoteAPIError(err))
+		return
+	}
+	httpx.WriteJSON(w, 200, res)
+}
+
+func (a *App) handleRevokeServerDevice(w http.ResponseWriter, r *http.Request) {
+	s := a.Sync()
+	if s == nil {
+		apierr.Write(w, apierr.New(409, "NOT_PAIRED", "sync server is not connected"))
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		apierr.Write(w, apierr.New(400, "BAD_REQUEST", "deviceId is required"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(a.baseCtx(), 20*time.Second)
+	defer cancel()
+	if err := s.RevokeDevice(ctx, id); err != nil {
+		apierr.Write(w, remoteAPIError(err))
+		return
+	}
+	httpx.WriteJSON(w, 200, map[string]any{"ok": true})
+}
+
+func (a *App) handleServerAccount(w http.ResponseWriter, r *http.Request) {
+	s := a.Sync()
+	if s == nil {
+		apierr.Write(w, apierr.New(409, "NOT_PAIRED", "sync server is not connected"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(a.baseCtx(), 20*time.Second)
+	defer cancel()
+	info, err := s.AccountInfo(ctx)
+	if err != nil {
+		apierr.Write(w, remoteAPIError(err))
+		return
+	}
+	httpx.WriteJSON(w, 200, info)
 }
 
 func (a *App) handleDisconnect(w http.ResponseWriter, _ *http.Request) {
@@ -615,6 +756,7 @@ func (a *App) handleDisconnect(w http.ResponseWriter, _ *http.Request) {
 	_ = a.store.SetKV("server_refresh_token", "")
 	_ = a.store.SetKV("server_access_expires_at", "")
 	_ = a.store.SetKV("server_device_id", "")
+	_ = a.store.SetKV("server_kind", "")
 	httpx.WriteJSON(w, 200, map[string]any{"paired": false})
 }
 

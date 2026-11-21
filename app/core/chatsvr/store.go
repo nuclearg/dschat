@@ -13,7 +13,7 @@ import (
 	"dschat/app/core/xdb"
 )
 
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 const (
 	SyncLocal   = "local"
@@ -102,8 +102,59 @@ create table if not exists drafts (
 	if err != nil {
 		return err
 	}
+	// create table if not exists 不会给已存在的旧表补列。0.1.x 的本地库没有
+	// sessions.server_id，启动后第一次查会话就会报 "no such column"。
+	// 这里做幂等补列，既修旧库，也不影响新库。
+	migrations := []struct {
+		table  string
+		column string
+		ddl    string
+	}{
+		{"sessions", "server_id", "text not null default ''"},
+		{"answers", "sync_state", "text not null default 'local'"},
+		{"attachments", "is_image", "integer not null default 0"},
+		{"attachments", "file_id", "text not null default ''"},
+		{"attachments", "file_uploaded_at", "integer not null default 0"},
+	}
+	for _, m := range migrations {
+		if err := ensureColumn(db, m.table, m.column, m.ddl); err != nil {
+			return err
+		}
+	}
 	_, _ = db.Exec(`insert or replace into kv(k,v) values('schema_version',?)`, SchemaVersion)
 	return nil
+}
+
+// ensureColumn adds a column only when the table does not have it yet.
+// SQLite has no "add column if not exists"; PRAGMA table_info is the portable
+// way to make this migration idempotent.
+func ensureColumn(db *sql.DB, table, column, ddl string) error {
+	rows, err := db.Query(`pragma table_info(` + table + `)`)
+	if err != nil {
+		return err
+	}
+	found := false
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == column {
+			found = true
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if found {
+		return nil
+	}
+	_, err = db.Exec(`alter table ` + table + ` add column ` + column + ` ` + ddl)
+	return err
 }
 
 func (s *Store) KV(k string) (string, error) {

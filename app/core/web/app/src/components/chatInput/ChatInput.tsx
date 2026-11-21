@@ -35,6 +35,7 @@ import { useVoiceInput } from './useVoiceInput.js'
 import { VoiceButton } from './VoiceButton.js'
 import { Spectrum } from './Spectrum.js'
 import { useTranslate } from '../../i18n/index.js'
+import { blockedStatusText } from '../sider/syncStatus.js'
 import styles from './ChatInput.module.css'
 
 /** 输入框：自适应高度的文本框 + 文件 + 深度思考与智能搜索开关 + 语音输入 + 发送 / 停止 */
@@ -57,7 +58,14 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const session = useChatStore((state) =>
     sessionId !== null ? state.sessionCache[sessionId] : undefined
   )
+  const sessionSummary = useChatStore((state) =>
+    sessionId !== null ? state.sessions.find((item) => item.id === sessionId) : undefined
+  )
   const stats = useMemo(() => usageStats(session), [session])
+  const blocked =
+    sessionSummary && (sessionSummary.transferState === 'blocked' || sessionSummary.blockedReason)
+      ? blockedStatusText(t, sessionSummary.blockedReason, sessionSummary.blockedDetail)
+      : null
   const readOnly = !!session?.readOnly
   const isMobile = useIsMobile()
   const search = useSettings((state) => state.search)
@@ -170,6 +178,12 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
         }
       }}
     >
+      {blocked ? (
+        <div className={styles.syncBlocked} role="status">
+          <div className={styles.syncBlockedTitle}>{blocked.title}</div>
+          {blocked.detail ? <div className={styles.syncBlockedDetail}>{blocked.detail}</div> : null}
+        </div>
+      ) : null}
       <DraftAttachments items={attachments} onRetry={retryFile} onRemove={removeFile} />
       <div className={styles.textareaWrapper}>
         <textarea
