@@ -239,7 +239,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           test -n "$VERSION"
 
-          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64 -o /tmp/ossutil
+          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.18/ossutil64 -o /tmp/ossutil
           chmod +x /tmp/ossutil
           /tmp/ossutil config -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" -L CH
           /tmp/ossutil cp -r release/ "oss://$OSS_BUCKET/release/$VERSION/" --force
