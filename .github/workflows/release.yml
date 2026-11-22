@@ -222,3 +222,26 @@ jobs:
             - Android: release-signed APK, Android 8.0 (API 26) and newer.
             - sessionsvr: darwin-arm64, linux-arm64, linux-amd64, windows-amd64.
             - sessionsvr is distributed as a single bare binary; create `config.properties` next to it before starting.
+
+      - name: Upload release assets to Aliyun OSS
+        env:
+          OSS_ENDPOINT: ${{ vars.ALIYUN_OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ vars.ALIYUN_OSS_BUCKET }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+        run: |
+          set -euo pipefail
+          : "${OSS_ENDPOINT:?ALIYUN_OSS_ENDPOINT repository variable is required}"
+          : "${OSS_BUCKET:?ALIYUN_OSS_BUCKET repository variable is required}"
+          : "${OSS_ACCESS_KEY_ID:?ALIYUN_OSS_ACCESS_KEY_ID secret is required}"
+          : "${OSS_ACCESS_KEY_SECRET:?ALIYUN_OSS_ACCESS_KEY_SECRET secret is required}"
+
+          VERSION="${GITHUB_REF_NAME#v}"
+          test -n "$VERSION"
+
+          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64 -o /tmp/ossutil
+          chmod +x /tmp/ossutil
+          /tmp/ossutil config -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" -L CH
+          /tmp/ossutil cp -r release/ "oss://$OSS_BUCKET/release/$VERSION/" --force
+
+          echo "uploaded release assets to oss://$OSS_BUCKET/release/$VERSION/"
