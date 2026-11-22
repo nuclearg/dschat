@@ -311,7 +311,13 @@ func (a *App) Send(sessionID string, req SendRequest) (*model.Turn, error) {
 
 	if syncActive {
 		ctx, cancel := context.WithTimeout(a.baseCtx(), 30*time.Second)
-		err := a.ensureRemoteSession(ctx, *sess)
+		// A synced session already has its remote row. Calling
+		// sessions.create again makes cloudsvr return SessionExists on every
+		// turn after the first; only create when this session is still local.
+		var err error
+		if sess.SyncState != SyncSynced {
+			err = a.ensureRemoteSession(ctx, *sess)
+		}
 		if err == nil {
 			if s := a.Sync(); s != nil {
 				err = s.AppendTurn(ctx, sessionID, t)
@@ -462,7 +468,18 @@ func (a *App) ensureRemoteSession(ctx context.Context, sess model.Session) error
 	}
 	remote, err := s.CreateSession(ctx, sess.ID, sess.Title)
 	if err != nil {
-		return err
+		// A local session can be reattached to a server where its row still
+		// exists (offline/disconnect, or a previous create succeeded before
+		// the local synced flag was persisted). Treat that as the existing
+		// remote session instead of surfacing SessionExists to the user.
+		var remoteErr *RemoteError
+		if !errors.As(err, &remoteErr) || remoteErr.Code != "SessionExists" {
+			return err
+		}
+		_, remote, err = s.GetSession(ctx, sess.ID)
+		if err != nil {
+			return err
+		}
 	}
 	if remote.OwnerID != "" && remote.OwnerID != a.deviceID {
 		_ = a.store.SetSessionOwner(sess.ID, remote.OwnerID)
