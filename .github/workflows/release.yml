@@ -245,3 +245,29 @@ jobs:
           /tmp/ossutil cp -r release/ "oss://$OSS_BUCKET/release/$VERSION/" --force
 
           echo "uploaded release assets to oss://$OSS_BUCKET/release/$VERSION/"
+
+      - name: Purge Aliyun CDN cache
+        env:
+          CDN_DOMAIN: ${{ vars.ALIYUN_CDN_DOMAIN }}
+          CDN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+          CDN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+        run: |
+          set -euo pipefail
+          : "${CDN_DOMAIN:?ALIYUN_CDN_DOMAIN repository variable is required}"
+          : "${CDN_ACCESS_KEY_ID:?ALIYUN_OSS_ACCESS_KEY_ID secret is required}"
+          : "${CDN_ACCESS_KEY_SECRET:?ALIYUN_OSS_ACCESS_KEY_SECRET secret is required}"
+
+          VERSION="${GITHUB_REF_NAME#v}"
+          test -n "$VERSION"
+
+          curl -fsSL https://aliyuncli.alicdn.com/aliyun-cli-linux-3.5.4-amd64.tgz -o /tmp/aliyun-cli.tgz
+          tar -xzf /tmp/aliyun-cli.tgz -C /tmp
+          /tmp/aliyun configure set --mode AK --access-key-id "$CDN_ACCESS_KEY_ID" --access-key-secret "$CDN_ACCESS_KEY_SECRET" --region cn-hangzhou
+
+          URLS=""
+          for f in release/*; do
+            URLS="${URLS}https://${CDN_DOMAIN}/release/${VERSION}/$(basename "$f")"$'\n'
+          done
+          printf '%s' "$URLS" | sed '/^$/d' > /tmp/cdn-urls.txt
+          cat /tmp/cdn-urls.txt
+          /tmp/aliyun cdn RefreshObjectCaches             --region cn-hangzhou             --ObjectPath "$(cat /tmp/cdn-urls.txt)"             --ObjectType File
