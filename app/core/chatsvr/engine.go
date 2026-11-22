@@ -288,22 +288,11 @@ func (a *App) Send(sessionID string, req SendRequest) (*model.Turn, error) {
 	if !syncActive && a.Sync() != nil && len(turns) == 0 {
 		syncActive = true
 	}
-	if syncActive {
-		// 先确保 sessionsvr 有 blob，再 append turn；否则别的设备会拿到元数据却没有文件。
-		upCtx, upCancel := context.WithTimeout(a.baseCtx(), 60*time.Second)
-		err := a.ensureRemoteAttachments(upCtx, sessionID, q.Attachments)
-		upCancel()
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	now := model.NowMS()
 	t := model.Turn{ID: model.NewID(), SessionID: sessionID, ParentTurnID: parent, Q: q, CreatedAt: now}
 	if err := a.store.UpsertTurn(t); err != nil {
 		return nil, err
 	}
-	prevSel, hadPrev := sels[parent]
 	if err := a.store.SetSelection(sessionID, parent, t.ID); err != nil {
 		return nil, err
 	}
@@ -311,38 +300,42 @@ func (a *App) Send(sessionID string, req SendRequest) (*model.Turn, error) {
 
 	if syncActive {
 		ctx, cancel := context.WithTimeout(a.baseCtx(), 30*time.Second)
-		// A synced session already has its remote row. Calling
-		// sessions.create again makes cloudsvr return SessionExists on every
-		// turn after the first; only create when this session is still local.
-		var err error
-		if sess.SyncState != SyncSynced {
-			err = a.ensureRemoteSession(ctx, *sess)
-		}
-		if err == nil {
-			if s := a.Sync(); s != nil {
-				err = s.AppendTurn(ctx, sessionID, t)
+		// Local-first: the turn and its local answer must survive a sync
+		// failure. A sessionsvr outage, quota error or auth problem only
+		// updates the sync badge; it must never make the local chat unusable.
+		var syncErr error
+		upCtx, upCancel := context.WithTimeout(a.baseCtx(), 60*time.Second)
+		syncErr = a.ensureRemoteAttachments(upCtx, sessionID, q.Attachments)
+		upCancel()
+		if syncErr == nil {
+			// A synced session already has its remote row. Calling
+			// sessions.create again makes cloudsvr return SessionExists on every
+			// turn after the first; only create when this session is still local.
+			if sess.SyncState != SyncSynced {
+				syncErr = a.ensureRemoteSession(ctx, *sess)
+			}
+			if syncErr == nil {
+				if s := a.Sync(); s != nil {
+					syncErr = s.AppendTurn(ctx, sessionID, t)
+				}
 			}
 		}
 		cancel()
-		if err == nil && sess.SyncState != SyncSynced {
+		if syncErr == nil && sess.SyncState != SyncSynced {
 			if applyErr := a.store.SetSessionSynced(sessionID, a.currentServerID()); applyErr == nil {
 				sess.SyncState = SyncSynced
 				sess.ServerID = a.currentServerID()
 				a.emit(map[string]any{"type": "session_updated", "sessionId": sessionID})
 			}
 		}
-		if err == nil {
+		if syncErr == nil {
 			a.clearSyncBlocked()
+		} else {
+			a.noteSyncError(syncErr)
 		}
-		if err != nil {
-			_ = a.store.DeleteTurn(t.ID)
-			if hadPrev {
-				_ = a.store.SetSelection(sessionID, parent, prevSel)
-			} else {
-				_ = a.store.DeleteSelection(sessionID, parent)
-			}
-			return nil, err
-		}
+		// Deliberately no rollback of t/selection here. The local tree is the
+		// source of truth while the sync service is unavailable; a later
+		// reconnect can reconcile it.
 	}
 
 	ctx, cancel := context.WithCancel(a.baseCtx())
