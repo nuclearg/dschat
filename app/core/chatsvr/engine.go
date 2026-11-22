@@ -600,6 +600,26 @@ func (a *App) SyncPending(sessionID string) error {
 	return nil
 }
 
+// syncSessionTitle pushes the locally generated title to the sync service.
+// It is deliberately best-effort: a title failure must not fail the answer.
+func (a *App) syncSessionTitle(sessionID string) {
+	sess, err := a.store.Session(sessionID)
+	if err != nil || sess.SyncState != SyncSynced || sess.OwnerID != a.deviceID {
+		return
+	}
+	s := a.Sync()
+	if s == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(a.baseCtx(), 15*time.Second)
+	defer cancel()
+	if err := s.Rename(ctx, sessionID, sess.Title); err != nil {
+		a.noteSyncError(err)
+		return
+	}
+	a.clearSyncBlocked()
+}
+
 func (a *App) Rename(sessionID, title string) error {
 	sess, err := a.store.Session(sessionID)
 	if err != nil {
@@ -848,7 +868,11 @@ func (a *App) generate(ctx context.Context, sess model.Session, t model.Turn, at
 		log.Printf("save answer: %v", err)
 	}
 	if title != "" {
+		// The first append creates the remote session before the model returns
+		// its title, so the title has to be pushed separately; otherwise every
+		// other device sees an untitled session until someone renames it.
 		_ = a.store.SetSessionTitleIfEmpty(sess.ID, title)
+		a.syncSessionTitle(sess.ID)
 	}
 	_ = a.store.TouchSession(sess.ID)
 	synced := false

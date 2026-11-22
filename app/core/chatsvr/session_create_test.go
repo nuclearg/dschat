@@ -74,3 +74,36 @@ func TestEnsureRemoteSessionReusesExistingSession(t *testing.T) {
 		t.Fatalf("creates = %d, want 2", creates)
 	}
 }
+
+func TestSyncSessionTitlePushesGeneratedTitle(t *testing.T) {
+	var gotTitle string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/v1/sessions.rename" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		gotTitle = body["title"]
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": map[string]any{}})
+	}))
+	defer server.Close()
+
+	app, err := New(Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	s := NewSync(server.URL, "access", "", time.Now().Add(time.Hour).UnixMilli(), app.deviceID, "zh-CN")
+	app.setSync(s)
+
+	sess := model.Session{ID: "s1", Title: "生成的标题", OwnerID: app.deviceID, SyncState: SyncSynced}
+	if err := app.store.CreateSession(sess); err != nil {
+		t.Fatal(err)
+	}
+	app.syncSessionTitle("s1")
+	if gotTitle != "生成的标题" {
+		t.Fatalf("renamed title = %q", gotTitle)
+	}
+}
