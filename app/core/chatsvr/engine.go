@@ -221,7 +221,35 @@ func (a *App) Send(sessionID string, req SendRequest) (*model.Turn, error) {
 		return nil, err
 	}
 	if sess.SyncState == SyncSynced && sess.OwnerID != a.deviceID {
-		return nil, apierr.New(409, "READ_ONLY", "session is owned by another device")
+		// Attempt an automatic, non-forced claim. The server rejects it if
+		// either side still has an open turn, so this only takes over when
+		// there is no unresolved data to lose.
+		localTurns, err := a.store.Turns(sessionID)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range localTurns {
+			if t.Answer == nil {
+				return nil, apierr.New(409, "OPEN_TURN", "会话仍有未完成的回合，需要确认后接管")
+			}
+		}
+		if pending, err := a.store.HasPending(sessionID); err != nil {
+			return nil, err
+		} else if pending {
+			return nil, apierr.New(409, "PENDING_SYNC", "会话有尚未同步的本地内容，需要确认后接管")
+		}
+		if outs, err := a.store.LocalOutputs(sessionID); err != nil {
+			return nil, err
+		} else if len(outs) > 0 {
+			return nil, apierr.New(409, "LOCAL_OUTPUT", "会话有未同步的本地输出，需要确认后接管")
+		}
+		if err := a.Claim(sessionID, false); err != nil {
+			return nil, err
+		}
+		sess, err = a.store.Session(sessionID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	// 原子地占住这个 session，防止两个窗口在“检查”和“注册 active”之间同时挤进来。
 	// sending 覆盖 resolveTurn / 远端 append 这段慢路径，active 覆盖真正的生成阶段。

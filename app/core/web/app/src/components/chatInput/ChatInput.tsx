@@ -147,7 +147,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const recording = voice.status === 'recording'
 
   // 排队、上传中或上传失败的附件都留在输入框，全部上传成功后才能发送
-  const canSend = !importingHistory && !streaming && voice.status === 'idle' && draftReady && !readOnly
+  const canSend = !importingHistory && !streaming && voice.status === 'idle' && draftReady
 
   const takeOver = () => {
     if (!sessionId || claiming) {
@@ -165,7 +165,6 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const send = () => {
     if (
       useChatStore.getState().importingHistory ||
-      readOnly ||
       voice.status !== 'idle' ||
       !prepareDraftMessage(getDraft(sessionId), useUploads.getState().tasks)
     ) {
@@ -216,11 +215,11 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
         <textarea
           ref={textareaRef}
           className={clsx(styles.textarea, recording && isMobile && styles.textareaHidden)}
-          placeholder={readOnly ? '只读：该会话由另一台设备持有' : t('chatInputPlaceholderChat')}
+          placeholder={readOnly ? t('sessionReadOnlyPlaceholder') : t('chatInputPlaceholderChat')}
           rows={2}
           // 移动端不自动聚焦，避免一打开就弹出键盘
           autoFocus={!isMobile}
-          disabled={importingHistory || readOnly}
+          disabled={importingHistory}
           value={text}
           onChange={(event) => setText(event.target.value)}
           onMouseDown={(event) => {
