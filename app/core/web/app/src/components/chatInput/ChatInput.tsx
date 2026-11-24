@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   IconGlobeLanguageOutline14,
   IconPaperclipOutline16,
@@ -9,7 +9,7 @@ import {
 } from '../base/icons.js'
 import { setSearch, setThinking, useSettings } from '../../services/settings.js'
 import { useIsMobile } from '../../app/viewport.js'
-import { sendMessage, stopReply, useChatStore } from '../../services/chat/store.js'
+import { claim, sendMessage, stopReply, useChatStore } from '../../services/chat/store.js'
 import { getVisibleMessages } from '../../services/chat/branches.js'
 import type { Session } from '../../services/chat/types.js'
 import { CONTEXT_WINDOW } from '../../services/chatsvr.js'
@@ -67,6 +67,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
       ? blockedStatusText(t, sessionSummary.blockedReason, sessionSummary.blockedDetail)
       : null
   const readOnly = !!session?.readOnly
+  const [claiming, setClaiming] = useState(false)
   const isMobile = useIsMobile()
   const search = useSettings((state) => state.search)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -148,6 +149,19 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   // 排队、上传中或上传失败的附件都留在输入框，全部上传成功后才能发送
   const canSend = !importingHistory && !streaming && voice.status === 'idle' && draftReady && !readOnly
 
+  const takeOver = () => {
+    if (!sessionId || claiming) {
+      return
+    }
+    setClaiming(true)
+    claim(sessionId, true)
+      .then(() => showToast({ key: 'sessionTakeOverSuccess' }))
+      .catch((error: unknown) => {
+        showToast(error instanceof Error ? error.message : String(error))
+      })
+      .finally(() => setClaiming(false))
+  }
+
   const send = () => {
     if (
       useChatStore.getState().importingHistory ||
@@ -182,6 +196,19 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
         <div className={styles.syncBlocked} role="status">
           <div className={styles.syncBlockedTitle}>{blocked.title}</div>
           {blocked.detail ? <div className={styles.syncBlockedDetail}>{blocked.detail}</div> : null}
+        </div>
+      ) : null}
+      {readOnly ? (
+        <div className={styles.readOnlyNotice} role="status">
+          <span className={styles.readOnlyText}>{t('sessionReadOnlyHint')}</span>
+          <button
+            type="button"
+            className={styles.takeOverButton}
+            onClick={takeOver}
+            disabled={claiming}
+          >
+            {claiming ? t('sessionTakingOver') : t('sessionTakeOver')}
+          </button>
         </div>
       ) : null}
       <DraftAttachments items={attachments} onRetry={retryFile} onRemove={removeFile} />

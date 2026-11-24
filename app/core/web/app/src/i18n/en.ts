@@ -203,6 +203,10 @@ export const en = {
   sessionCloudDownloading: 'Syncing from the data sync service',
   sessionCloudFragment: 'A local reply could not be synced',
   sessionCloudFragmentRemote: 'A local reply could not be synced; owned by another device',
+  sessionReadOnlyHint: 'This chat is owned by another device. Take it over to continue editing and sending.',
+  sessionTakeOver: 'Take over',
+  sessionTakingOver: 'Taking over…',
+  sessionTakeOverSuccess: 'Chat taken over',
   deleteAllSessions: 'Delete all local chats',
   deleteAllSessionsDescription:
     'Only chats owned by this device. Read-only chats owned by other devices are kept; synced chats are also deleted from the data sync service.',
