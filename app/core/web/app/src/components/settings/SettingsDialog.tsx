@@ -38,6 +38,9 @@ import { ServerDevices } from './ServerDevices.js'
 import { closeSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
 import styles from './Settings.module.css'
 
+const appVersion = () =>
+  document.querySelector('meta[name="application-version"]')?.getAttribute('content') ?? ''
+
 /**
  * 设置弹窗：分「通用设置」（主题、语言、朗读音色、位置）与「数据管理」（API Key、导入、导出、删除）。
  * 桌面端为居中弹窗、左侧导航；移动端为底部弹层、导航横排在内容上方
@@ -92,6 +95,11 @@ const SettingsContent = () => {
             closeSettings()
           }
         }}
+        footer={
+          appVersion() ? (
+            <div className={styles.version}>v{appVersion()}</div>
+          ) : undefined
+        }
       >
         <div role="tablist" className={styles.navigation}>
           {sections.map((item) => (

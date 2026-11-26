@@ -858,3 +858,14 @@
 .switchOn .switchThumb {
   transform: translateX(16px);
 }
+
+
+/* 设置弹窗底部的版本号：只做信息展示，不参与布局交互 */
+.version {
+  width: 100%;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  text-align: right;
+  user-select: text;
+}
