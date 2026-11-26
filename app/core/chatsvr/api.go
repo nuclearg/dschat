@@ -139,7 +139,16 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   365 * 24 * 3600,
 	})
-	http.Redirect(w, r, "/", http.StatusFound)
+	// The tray's "配置" entry appends settings=1 to this auth URL. Keep
+	// non-secret query parameters across the token-consuming redirect;
+	// otherwise the app opens normally and the requested dialog is lost.
+	query := r.URL.Query()
+	query.Del("t")
+	target := "/"
+	if encoded := query.Encode(); encoded != "" {
+		target += "?" + encoded
+	}
+	http.Redirect(w, r, target, http.StatusFound)
 }
 
 func (a *App) handleAuth(w http.ResponseWriter, r *http.Request) {
