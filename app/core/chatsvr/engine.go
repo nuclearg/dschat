@@ -1412,11 +1412,16 @@ func (a *App) syncAll(ctx context.Context) {
 		a.clearSyncBlocked()
 	}
 	remote := make(map[string]bool, len(list))
+	deleted := make(map[string]bool, len(list))
 	for _, rs := range list {
+		if rs.DeletedAt > 0 {
+			deleted[rs.ID] = true
+			continue
+		}
 		remote[rs.ID] = true
 	}
 	for _, rs := range list {
-		if pendingDeletes[rs.ID] {
+		if rs.DeletedAt > 0 || pendingDeletes[rs.ID] {
 			continue
 		}
 		if err := a.pullSession(ctx, rs.ID); err != nil {
@@ -1426,21 +1431,23 @@ func (a *App) syncAll(ctx context.Context) {
 	for _, id := range a.pendingTitleIDs() {
 		go a.syncSessionTitle(id)
 	}
-	// A soft-deleted session disappears from the remote list. Be conservative:
-	// an empty list is never treated as "delete everything", and a local row
-	// with pending work is never removed by reconciliation.
+	// Only an explicit tombstone can delete a local session. Absence from the
+	// remote list is never treated as a deletion: it can mean a new account,
+	// an empty database, a partial list, or a client that has not synced yet.
 	serverID := a.currentServerID()
-	if len(list) > 0 {
-		for _, sess := range local {
-			if sess.SyncState != SyncSynced || sess.ServerID != serverID || serverID == "" || remote[sess.ID] {
-				continue
-			}
-			if !a.localSessionSafeToDrop(sess.ID) {
-				continue
-			}
-			if err := a.deleteLocalSession(sess.ID); err != nil {
-				log.Printf("sync delete %s: %v", sess.ID, err)
-			}
+	for _, sess := range local {
+		if sess.SyncState != SyncSynced || sess.ServerID != serverID || serverID == "" {
+			continue
+		}
+		if !deleted[sess.ID] || remote[sess.ID] {
+			continue
+		}
+		if !a.localSessionSafeToDrop(sess.ID) {
+			continue
+		}
+		_ = a.store.DeleteKV(pendingTitleKey(sess.ID))
+		if err := a.deleteLocalSession(sess.ID); err != nil {
+			log.Printf("sync delete %s: %v", sess.ID, err)
 		}
 	}
 	a.emit(map[string]any{"type": "sessions_changed"})

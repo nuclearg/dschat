@@ -187,7 +187,7 @@ func TestSoftDeleteAndCleanup(t *testing.T) {
 	if err := st.DeleteSession(sess.ID, "dev"); err != nil {
 		t.Fatal(err)
 	}
-	if list, err := st.ListSessions(); err != nil || len(list) != 0 {
+	if list, err := st.ListSessions(); err != nil || len(list) != 1 || list[0].DeletedAt == 0 {
 		t.Fatalf("list after delete = %v, %v", list, err)
 	}
 	if _, _, err := st.GetSession(sess.ID); err == nil {

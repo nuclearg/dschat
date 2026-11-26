@@ -222,3 +222,39 @@ func TestDeleteAllQueuesExplicitRemoteBatch(t *testing.T) {
 		t.Fatalf("pending batch = %v, want both ids", ids)
 	}
 }
+
+func TestSyncAllDeletesOnlyExplicitTombstones(t *testing.T) {
+	app, err := New(Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/v1/sessions.list" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"data": map[string]any{"sessions": []any{map[string]any{
+				"id": "s1", "title": "t", "ownerDeviceId": app.deviceID,
+				"createdAt": 1, "updatedAt": 2, "deletedAt": 2,
+			}}},
+		})
+	}))
+	defer server.Close()
+	app.setSync(NewSync(server.URL, "access", "", time.Now().Add(time.Hour).UnixMilli(), app.deviceID, "zh-CN"))
+	_ = app.store.SetKV("server_id", "server-a")
+	if err := app.store.CreateSession(model.Session{
+		ID: "s1", Title: "t", OwnerID: app.deviceID, SyncState: SyncSynced, ServerID: "server-a", CreatedAt: 1, UpdatedAt: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	app.syncAll(context.Background())
+	if _, err := app.store.Session("s1"); err == nil {
+		t.Fatal("explicit tombstone did not delete local session")
+	}
+}

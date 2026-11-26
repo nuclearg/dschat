@@ -98,7 +98,8 @@ func (e *RemoteError) IsAuthError() bool {
 
 type RemoteSession struct {
 	model.Session
-	HasOpenTurn bool `json:"hasOpenTurn"`
+	DeletedAt   int64 `json:"deletedAt,omitempty"`
+	HasOpenTurn bool  `json:"hasOpenTurn"`
 }
 
 type RemoteEvent struct {

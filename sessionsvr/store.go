@@ -32,7 +32,8 @@ type Device struct {
 
 type SessionSummary struct {
 	model.Session
-	HasOpenTurn bool `json:"hasOpenTurn"`
+	DeletedAt   int64 `json:"deletedAt,omitempty"`
+	HasOpenTurn bool  `json:"hasOpenTurn"`
 }
 
 type Store struct {
@@ -397,10 +398,10 @@ func (s *Store) CreateSession(id, title, owner string) (*model.Session, error) {
 
 func (s *Store) ListSessions() ([]SessionSummary, error) {
 	rows, err := s.db.Query(`
-select s.id, s.title, s.owner_device_id, s.created_at, s.updated_at,
+select s.id, s.title, s.owner_device_id, s.created_at, s.updated_at, s.deleted_at,
   exists(select 1 from turns t left join answers a on a.turn_id=t.id
          where t.session_id=s.id and a.turn_id is null) as open_turn
-from sessions s where s.deleted_at=0 order by s.updated_at desc`)
+from sessions s order by s.updated_at desc`)
 	if err != nil {
 		return nil, err
 	}
@@ -408,7 +409,7 @@ from sessions s where s.deleted_at=0 order by s.updated_at desc`)
 	out := []SessionSummary{}
 	for rows.Next() {
 		var x SessionSummary
-		if err := rows.Scan(&x.ID, &x.Title, &x.OwnerID, &x.CreatedAt, &x.UpdatedAt, &x.HasOpenTurn); err != nil {
+		if err := rows.Scan(&x.ID, &x.Title, &x.OwnerID, &x.CreatedAt, &x.UpdatedAt, &x.DeletedAt, &x.HasOpenTurn); err != nil {
 			return nil, err
 		}
 		out = append(out, x)
@@ -732,11 +733,21 @@ func (s *Store) CleanupExpired(cutoff int64) (int, error) {
 		if err != nil {
 			return removed, err
 		}
+		if _, err := tx.Exec(`delete from answers where turn_id in (select id from turns where session_id=?)`, id); err != nil {
+			tx.Rollback()
+			return removed, err
+		}
+		if _, err := tx.Exec(`delete from turns where session_id=?`, id); err != nil {
+			tx.Rollback()
+			return removed, err
+		}
 		if _, err := tx.Exec(`delete from attachments where session_id=?`, id); err != nil {
 			tx.Rollback()
 			return removed, err
 		}
-		if _, err := tx.Exec(`delete from sessions where id=?`, id); err != nil {
+		// Keep the session row as a tombstone; removing it would make an
+		// offline device interpret "missing from list" as an unknown state.
+		if _, err := tx.Exec(`update sessions set title='' where id=?`, id); err != nil {
 			tx.Rollback()
 			return removed, err
 		}
