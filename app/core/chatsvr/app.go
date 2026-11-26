@@ -108,6 +108,9 @@ type App struct {
 	syncMu sync.Mutex
 	sync   *Sync
 
+	syncOpsMu sync.Mutex
+	syncOps   map[string]*sync.Mutex
+
 	proxyClient *http.Client
 }
 
@@ -163,6 +166,7 @@ func New(cfg Config) (*App, error) {
 		active:      map[string]*activeTurn{},
 		sending:     map[string]bool{},
 		partials:    map[string]*model.Answer{},
+		syncOps:     map[string]*sync.Mutex{},
 		language:    "zh-CN",
 		proxyClient: &http.Client{},
 	}
@@ -388,6 +392,20 @@ func (a *App) saveServerTokens(access, refresh string, accessExpiresAt int64) {
 	_ = a.store.SetKV("server_access_expires_at", strconv.FormatInt(accessExpiresAt, 10))
 }
 
+// sessionSyncLock serializes remote writes and pulls for one session. Local
+// generation never takes this lock, so a slow sync request cannot block typing
+// or model output.
+func (a *App) sessionSyncLock(sessionID string) *sync.Mutex {
+	a.syncOpsMu.Lock()
+	defer a.syncOpsMu.Unlock()
+	lock := a.syncOps[sessionID]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		a.syncOps[sessionID] = lock
+	}
+	return lock
+}
+
 func (a *App) Sync() *Sync {
 	a.syncMu.Lock()
 	defer a.syncMu.Unlock()
@@ -488,6 +506,9 @@ func (a *App) pushAnswer(sessionID, turnID string, answer model.Answer) error {
 	if s == nil {
 		return errors.New("not connected to a sessionsvr")
 	}
+	lock := a.sessionSyncLock(sessionID)
+	lock.Lock()
+	defer lock.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := s.AppendAnswer(ctx, sessionID, turnID, answer); err != nil {

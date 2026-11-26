@@ -171,6 +171,30 @@ func (s *Store) SetKV(k, v string) error {
 	return err
 }
 
+func (s *Store) DeleteKV(k string) error {
+	_, err := s.db.Exec(`delete from kv where k=?`, k)
+	return err
+}
+
+// KVKeys returns keys with a shared prefix. Used for durable local-first
+// outboxes such as pending remote deletes and pending title pushes.
+func (s *Store) KVKeys(prefix string) ([]string, error) {
+	rows, err := s.db.Query(`select k from kv where k like ? order by k`, prefix+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	keys := []string{}
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			return nil, err
+		}
+		keys = append(keys, k)
+	}
+	return keys, rows.Err()
+}
+
 func (s *Store) CreateSession(x model.Session) error {
 	_, err := s.db.Exec(`insert into sessions(id,title,owner_device_id,sync_state,server_id,created_at,updated_at) values(?,?,?,?,?,?,?)`,
 		x.ID, x.Title, x.OwnerID, x.SyncState, x.ServerID, x.CreatedAt, x.UpdatedAt)

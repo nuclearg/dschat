@@ -14,6 +14,14 @@ import (
 	"dschat/app/core/model"
 )
 
+const (
+	pendingTitlePrefix  = "pending_title:"
+	pendingDeletePrefix = "pending_delete:"
+)
+
+func pendingTitleKey(id string) string  { return pendingTitlePrefix + id }
+func pendingDeleteKey(id string) string { return pendingDeletePrefix + id }
+
 type SendRequest struct {
 	Text          string   `json:"text"`
 	AttachmentIDs []string `json:"attachmentIds,omitempty"`
@@ -312,10 +320,6 @@ func (a *App) Send(sessionID string, req SendRequest) (*model.Turn, error) {
 		sess.SyncState = SyncLocal
 		a.emit(map[string]any{"type": "sessions_changed"})
 	}
-	syncActive := sess.SyncState == SyncSynced
-	if !syncActive && a.Sync() != nil && len(turns) == 0 {
-		syncActive = true
-	}
 	now := model.NowMS()
 	t := model.Turn{ID: model.NewID(), SessionID: sessionID, ParentTurnID: parent, Q: q, CreatedAt: now}
 	if err := a.store.UpsertTurn(t); err != nil {
@@ -326,45 +330,10 @@ func (a *App) Send(sessionID string, req SendRequest) (*model.Turn, error) {
 	}
 	_ = a.store.TouchSession(sessionID)
 
-	if syncActive {
-		ctx, cancel := context.WithTimeout(a.baseCtx(), 30*time.Second)
-		// Local-first: the turn and its local answer must survive a sync
-		// failure. A sessionsvr outage, quota error or auth problem only
-		// updates the sync badge; it must never make the local chat unusable.
-		var syncErr error
-		upCtx, upCancel := context.WithTimeout(a.baseCtx(), 60*time.Second)
-		syncErr = a.ensureRemoteAttachments(upCtx, sessionID, q.Attachments)
-		upCancel()
-		if syncErr == nil {
-			// A synced session already has its remote row. Calling
-			// sessions.create again makes cloudsvr return SessionExists on every
-			// turn after the first; only create when this session is still local.
-			if sess.SyncState != SyncSynced {
-				syncErr = a.ensureRemoteSession(ctx, *sess)
-			}
-			if syncErr == nil {
-				if s := a.Sync(); s != nil {
-					syncErr = s.AppendTurn(ctx, sessionID, t)
-				}
-			}
-		}
-		cancel()
-		if syncErr == nil && sess.SyncState != SyncSynced {
-			if applyErr := a.store.SetSessionSynced(sessionID, a.currentServerID()); applyErr == nil {
-				sess.SyncState = SyncSynced
-				sess.ServerID = a.currentServerID()
-				a.emit(map[string]any{"type": "session_updated", "sessionId": sessionID})
-			}
-		}
-		if syncErr == nil {
-			a.clearSyncBlocked()
-		} else {
-			a.noteSyncError(syncErr)
-		}
-		// Deliberately no rollback of t/selection here. The local tree is the
-		// source of truth while the sync service is unavailable; a later
-		// reconnect can reconcile it.
-	}
+	// Sync is a background outbox operation. The local turn is already saved
+	// and generation can start immediately; a slow or unavailable sessionsvr
+	// must not delay the user's first token.
+	go a.syncTurn(*sess, t)
 
 	ctx, cancel := context.WithCancel(a.baseCtx())
 	at := &activeTurn{turnID: t.ID, cancel: cancel}
@@ -480,6 +449,64 @@ func chain(turns []model.Turn, parentID string) []model.Turn {
 		out = append(out, rev[i])
 	}
 	return out
+}
+
+// syncTurn uploads a locally saved turn and, if it is already available, its
+// local answer. It runs outside the request/generation path so network timeouts
+// cannot hold up local chat.
+func (a *App) syncTurn(sess model.Session, t model.Turn) {
+	s := a.Sync()
+	if s == nil {
+		return
+	}
+	lock := a.sessionSyncLock(t.SessionID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	ctx, cancel := context.WithTimeout(a.baseCtx(), 60*time.Second)
+	defer cancel()
+
+	if err := a.ensureRemoteAttachments(ctx, t.SessionID, t.Q.Attachments); err != nil {
+		a.noteSyncError(err)
+		return
+	}
+	current, err := a.store.Session(t.SessionID)
+	if err != nil {
+		return
+	}
+	if current.SyncState != SyncSynced {
+		if err := a.ensureRemoteSession(ctx, *current); err != nil {
+			a.noteSyncError(err)
+			return
+		}
+	}
+	if err := s.AppendTurn(ctx, t.SessionID, t); err != nil {
+		a.noteSyncError(err)
+		return
+	}
+	if current.SyncState != SyncSynced {
+		if err := a.store.SetSessionSynced(t.SessionID, a.currentServerID()); err == nil {
+			current.SyncState = SyncSynced
+			current.ServerID = a.currentServerID()
+			a.emit(map[string]any{"type": "session_updated", "sessionId": t.SessionID})
+		}
+	}
+	a.clearSyncBlocked()
+	// A generated title may have been committed while the session was still
+	// local; now that the session exists remotely, push that title too.
+	a.queueTitleSync(t.SessionID)
+
+	// The answer may have finished while the Q upload was in flight. Push it
+	// now so a fast local reply is not left stranded.
+	local, err := a.store.Turn(t.ID)
+	if err != nil || local.Answer == nil {
+		return
+	}
+	if state, ok, _ := a.store.AnswerState(t.ID); ok && state != SyncSynced {
+		if err := s.AppendAnswer(ctx, t.SessionID, t.ID, *local.Answer); err == nil {
+			_ = a.store.SetAnswerSync(t.ID, SyncSynced)
+		}
+	}
 }
 
 func (a *App) ensureRemoteSession(ctx context.Context, sess model.Session) error {
@@ -621,9 +648,47 @@ func (a *App) SyncPending(sessionID string) error {
 	return nil
 }
 
+func (a *App) pendingTitleIDs() []string {
+	keys, err := a.store.KVKeys(pendingTitlePrefix)
+	if err != nil {
+		return nil
+	}
+	ids := make([]string, 0, len(keys))
+	for _, key := range keys {
+		ids = append(ids, strings.TrimPrefix(key, pendingTitlePrefix))
+	}
+	return ids
+}
+
+func (a *App) pendingDeleteIDs() []string {
+	keys, err := a.store.KVKeys(pendingDeletePrefix)
+	if err != nil {
+		return nil
+	}
+	ids := make([]string, 0, len(keys))
+	for _, key := range keys {
+		ids = append(ids, strings.TrimPrefix(key, pendingDeletePrefix))
+	}
+	return ids
+}
+
+// queueTitleSync records a local title push as pending and performs it in the
+// background. The local title is already committed before this is called.
+func (a *App) queueTitleSync(sessionID string) {
+	sess, err := a.store.Session(sessionID)
+	if err != nil || sess.SyncState != SyncSynced || sess.OwnerID != a.deviceID {
+		return
+	}
+	_ = a.store.SetKV(pendingTitleKey(sessionID), sess.Title)
+	go a.syncSessionTitle(sessionID)
+}
+
 // syncSessionTitle pushes the locally generated title to the sync service.
 // It is deliberately best-effort: a title failure must not fail the answer.
 func (a *App) syncSessionTitle(sessionID string) {
+	lock := a.sessionSyncLock(sessionID)
+	lock.Lock()
+	defer lock.Unlock()
 	sess, err := a.store.Session(sessionID)
 	if err != nil || sess.SyncState != SyncSynced || sess.OwnerID != a.deviceID {
 		return
@@ -638,6 +703,7 @@ func (a *App) syncSessionTitle(sessionID string) {
 		a.noteSyncError(err)
 		return
 	}
+	_ = a.store.DeleteKV(pendingTitleKey(sessionID))
 	a.clearSyncBlocked()
 }
 
@@ -646,21 +712,17 @@ func (a *App) Rename(sessionID, title string) error {
 	if err != nil {
 		return err
 	}
-	if sess.SyncState == SyncSynced {
-		if sess.OwnerID != a.deviceID {
-			return apierr.New(409, "READ_ONLY", "session is owned by another device")
-		}
-		if s := a.Sync(); s != nil {
-			ctx, cancel := context.WithTimeout(a.baseCtx(), 15*time.Second)
-			defer cancel()
-			if err := s.Rename(ctx, sessionID, title); err != nil {
-				return err
-			}
-			a.clearSyncBlocked()
-		}
+	if sess.SyncState == SyncSynced && sess.OwnerID != a.deviceID {
+		return apierr.New(409, "READ_ONLY", "session is owned by another device")
 	}
+	// Commit locally first. The remote rename is an outbox operation and must
+	// not make an offline rename fail or wait for a network timeout.
 	if err := a.store.SetSessionTitle(sessionID, title); err != nil {
 		return err
+	}
+	if sess.SyncState == SyncSynced && a.Sync() != nil {
+		_ = a.store.SetKV(pendingTitleKey(sessionID), title)
+		go a.syncSessionTitle(sessionID)
 	}
 	a.emit(map[string]any{"type": "session_updated", "sessionId": sessionID})
 	return nil
@@ -699,27 +761,48 @@ func (a *App) Delete(sessionID string) error {
 	if err != nil {
 		return err
 	}
-	if sess.SyncState == SyncSynced {
-		s := a.Sync()
-		if s == nil {
-			// 同步服务已不存在：这只是本地数据，删除是纯本地操作，不该被拦住。
-			return a.deleteLocalSession(sessionID)
-		}
-		if sess.OwnerID != a.deviceID {
-			return apierr.New(409, "READ_ONLY", "session is owned by another device")
-		}
-		ctx, cancel := context.WithTimeout(a.baseCtx(), 15*time.Second)
-		defer cancel()
-		if err := s.DeleteSession(ctx, sessionID); err != nil {
-			var remote *RemoteError
-			if errors.As(err, &remote) && remote.Code == "SessionNotFound" {
-				return a.deleteLocalSession(sessionID)
-			}
+	if sess.SyncState == SyncSynced && sess.OwnerID != a.deviceID {
+		return apierr.New(409, "READ_ONLY", "session is owned by another device")
+	}
+	if sess.SyncState == SyncSynced && a.Sync() != nil {
+		// Remember the remote delete before removing local rows. If the network
+		// is down, the local row still disappears immediately and syncAll (or
+		// the next launch) will flush the tombstone later.
+		if err := a.store.SetKV(pendingDeleteKey(sessionID), "1"); err != nil {
 			return err
 		}
-		a.clearSyncBlocked()
+		if err := a.deleteLocalSession(sessionID); err != nil {
+			_ = a.store.DeleteKV(pendingDeleteKey(sessionID))
+			return err
+		}
+		_ = a.store.DeleteKV(pendingTitleKey(sessionID))
+		go a.flushPendingDelete(sessionID)
+		return nil
 	}
+	_ = a.store.DeleteKV(pendingTitleKey(sessionID))
 	return a.deleteLocalSession(sessionID)
+}
+
+// flushPendingDelete retries a remote delete from the durable local outbox.
+func (a *App) flushPendingDelete(sessionID string) {
+	s := a.Sync()
+	if s == nil {
+		return
+	}
+	lock := a.sessionSyncLock(sessionID)
+	lock.Lock()
+	defer lock.Unlock()
+	ctx, cancel := context.WithTimeout(a.baseCtx(), 15*time.Second)
+	defer cancel()
+	if err := s.DeleteSession(ctx, sessionID); err != nil {
+		var remote *RemoteError
+		if !(errors.As(err, &remote) && remote.Code == "SessionNotFound") {
+			a.noteSyncError(err)
+			return
+		}
+	}
+	_ = a.store.DeleteKV(pendingDeleteKey(sessionID))
+	a.clearSyncBlocked()
 }
 
 // deleteLocalSession cancels any active generation and removes the session,
@@ -881,8 +964,12 @@ func (a *App) generate(ctx context.Context, sess model.Session, t model.Turn, at
 		DurationMs:     time.Since(startedAt).Milliseconds(),
 		CreatedAt:      model.NowMS(),
 	}
+	current := sess
+	if live, err := a.store.Session(sess.ID); err == nil {
+		current = *live
+	}
 	state := SyncLocal
-	if sess.SyncState == SyncSynced {
+	if current.SyncState == SyncSynced {
 		state = SyncPending
 	}
 	if err := a.store.PutAnswer(t.ID, ans, state); err != nil {
@@ -893,35 +980,46 @@ func (a *App) generate(ctx context.Context, sess model.Session, t model.Turn, at
 		// its title, so the title has to be pushed separately; otherwise every
 		// other device sees an untitled session until someone renames it.
 		_ = a.store.SetSessionTitleIfEmpty(sess.ID, title)
-		a.syncSessionTitle(sess.ID)
+		a.queueTitleSync(sess.ID)
 	}
 	_ = a.store.TouchSession(sess.ID)
-	synced := false
-	if state == SyncPending {
-		if err := a.pushAnswer(sess.ID, t.ID, ans); err == nil {
-			synced = true
-		}
-	}
 	if streamErr != nil {
 		a.emit(map[string]any{"type": "error", "sessionId": sess.ID, "turnId": t.ID, "message": streamErr.Error()})
 	}
-	a.emit(map[string]any{"type": "turn_finished", "sessionId": sess.ID, "turnId": t.ID, "status": ans.Status, "synced": synced, "answer": ans})
+	// Deliver the local completion before the remote answer upload. The upload
+	// is an outbox operation; its timeout must not delay the final message.
+	a.emit(map[string]any{"type": "turn_finished", "sessionId": sess.ID, "turnId": t.ID, "status": ans.Status, "synced": false, "answer": ans})
+	if state == SyncPending {
+		go func(sessionID, turnID string, answer model.Answer) {
+			if err := a.pushAnswer(sessionID, turnID, answer); err == nil {
+				a.emit(map[string]any{"type": "session_updated", "sessionId": sessionID})
+			}
+		}(sess.ID, t.ID, ans)
+	}
 }
 
 func (a *App) failTurn(sess model.Session, t model.Turn, cause error) {
 	a.clearPartial(t.ID)
 	ans := model.Answer{Status: model.StatusAborted, Blocks: []map[string]any{}, CreatedAt: model.NowMS()}
+	current := sess
+	if live, err := a.store.Session(sess.ID); err == nil {
+		current = *live
+	}
 	state := SyncLocal
-	if sess.SyncState == SyncSynced {
+	if current.SyncState == SyncSynced {
 		state = SyncPending
 	}
 	_ = a.store.PutAnswer(t.ID, ans, state)
 	_ = a.store.TouchSession(sess.ID)
-	if state == SyncPending {
-		_ = a.pushAnswer(sess.ID, t.ID, ans)
-	}
 	a.emit(map[string]any{"type": "error", "sessionId": sess.ID, "turnId": t.ID, "message": cause.Error()})
 	a.emit(map[string]any{"type": "turn_finished", "sessionId": sess.ID, "turnId": t.ID, "status": ans.Status})
+	if state == SyncPending {
+		go func(sessionID, turnID string, answer model.Answer) {
+			if err := a.pushAnswer(sessionID, turnID, answer); err == nil {
+				a.emit(map[string]any{"type": "session_updated", "sessionId": sessionID})
+			}
+		}(sess.ID, t.ID, ans)
+	}
 }
 
 func (a *App) emitDelta(sessionID, turnID string, index int, kind, text string) {
@@ -1096,6 +1194,14 @@ func assistantContent(a *model.Answer) []any {
 }
 
 func (a *App) onRemoteEvent(ev RemoteEvent) {
+	if ev.SessionID != "" {
+		if pending, _ := a.store.KV(pendingDeleteKey(ev.SessionID)); pending != "" {
+			if ev.Type == "deleted" {
+				_ = a.store.DeleteKV(pendingDeleteKey(ev.SessionID))
+			}
+			return
+		}
+	}
 	switch ev.Type {
 	case "hello":
 		return
@@ -1113,6 +1219,11 @@ func (a *App) onRemoteEvent(ev RemoteEvent) {
 	case "turn", "answer":
 		go a.pullSession(a.baseCtx(), ev.SessionID)
 	case "deleted":
+		// A remote delete must not destroy a local turn that has not reached
+		// the server yet. Keep the local copy and let the next sync decide.
+		if !a.localSessionSafeToDrop(ev.SessionID) {
+			return
+		}
 		if err := a.deleteLocalSession(ev.SessionID); err != nil {
 			log.Printf("delete session %s: %v", ev.SessionID, err)
 		}
@@ -1126,6 +1237,12 @@ func (a *App) pullSession(ctx context.Context, sessionID string) error {
 	if s == nil {
 		return nil
 	}
+	if pending, _ := a.store.KV(pendingDeleteKey(sessionID)); pending != "" {
+		return nil
+	}
+	lock := a.sessionSyncLock(sessionID)
+	lock.Lock()
+	defer lock.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	turns, remote, err := s.GetSession(ctx, sessionID)
@@ -1146,15 +1263,27 @@ func (a *App) pullSession(ctx context.Context, sessionID string) error {
 	if remote.OwnerID != "" && remote.OwnerID != local.OwnerID {
 		_ = a.store.SetSessionOwner(sessionID, remote.OwnerID)
 	}
-	if remote.Title != "" && remote.Title != local.Title {
-		_ = a.store.SetSessionTitle(sessionID, remote.Title)
+	if pendingTitle, _ := a.store.KV(pendingTitleKey(sessionID)); pendingTitle == "" {
+		if remote.Title != "" && remote.Title != local.Title {
+			_ = a.store.SetSessionTitle(sessionID, remote.Title)
+		}
 	}
+	pendingOutput, _ := a.store.LocalOutputs(sessionID)
 	for _, t := range turns {
 		t.SessionID = sessionID
 		_ = a.store.UpsertTurn(t)
-		if t.Answer != nil {
-			_ = a.store.PutAnswer(t.ID, *t.Answer, SyncSynced)
+		if t.Answer == nil {
+			continue
 		}
+		// Never replace a local answer that still has to be uploaded, and
+		// never replace a local fragment that only exists locally.
+		if state, ok, _ := a.store.AnswerState(t.ID); ok && state != SyncSynced {
+			continue
+		}
+		if _, ok := pendingOutput[t.ID]; ok {
+			continue
+		}
+		_ = a.store.PutAnswer(t.ID, *t.Answer, SyncSynced)
 		for _, att := range t.Q.Attachments {
 			if _, err := a.ensureLocalAttachment(ctx, att, sessionID); err != nil {
 				a.noteSyncError(err)
@@ -1170,6 +1299,11 @@ func (a *App) syncAll(ctx context.Context) {
 	s := a.Sync()
 	if s == nil {
 		return
+	}
+	pendingDeletes := map[string]bool{}
+	for _, id := range a.pendingDeleteIDs() {
+		pendingDeletes[id] = true
+		go a.flushPendingDelete(id)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
@@ -1192,22 +1326,65 @@ func (a *App) syncAll(ctx context.Context) {
 		remote[rs.ID] = true
 	}
 	for _, rs := range list {
+		if pendingDeletes[rs.ID] {
+			continue
+		}
 		if err := a.pullSession(ctx, rs.ID); err != nil {
 			a.noteSyncError(err)
 		}
 	}
-	// A soft-deleted session disappears from the remote list. Reconcile it
-	// locally so devices that were offline during the delete also remove it.
+	for _, id := range a.pendingTitleIDs() {
+		go a.syncSessionTitle(id)
+	}
+	// A soft-deleted session disappears from the remote list. Be conservative:
+	// an empty list is never treated as "delete everything", and a local row
+	// with pending work is never removed by reconciliation.
 	serverID := a.currentServerID()
-	for _, sess := range local {
-		// Only sessions belonging to this sessionsvr may be reconciled away.
-		if sess.SyncState == SyncSynced && sess.ServerID == serverID && serverID != "" && !remote[sess.ID] {
+	if len(list) > 0 {
+		for _, sess := range local {
+			if sess.SyncState != SyncSynced || sess.ServerID != serverID || serverID == "" || remote[sess.ID] {
+				continue
+			}
+			if !a.localSessionSafeToDrop(sess.ID) {
+				continue
+			}
 			if err := a.deleteLocalSession(sess.ID); err != nil {
 				log.Printf("sync delete %s: %v", sess.ID, err)
 			}
 		}
 	}
 	a.emit(map[string]any{"type": "sessions_changed"})
+}
+
+// localSessionSafeToDrop reports whether a remote deletion may remove this
+// local row without losing local work. Active turns, open turns and pending
+// answers/fragments all make the row unsafe to reconcile away.
+func (a *App) localSessionSafeToDrop(sessionID string) bool {
+	a.mu.Lock()
+	busy := a.active[sessionID] != nil || a.sending[sessionID]
+	a.mu.Unlock()
+	if busy {
+		return false
+	}
+	if title, _ := a.store.KV(pendingTitleKey(sessionID)); title != "" {
+		return false
+	}
+	if pending, _ := a.store.HasPending(sessionID); pending {
+		return false
+	}
+	if outputs, _ := a.store.LocalOutputs(sessionID); len(outputs) > 0 {
+		return false
+	}
+	turns, err := a.store.Turns(sessionID)
+	if err != nil {
+		return false
+	}
+	for _, t := range turns {
+		if t.Answer == nil {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *App) SelectVersion(sessionID, turnID string) error {
