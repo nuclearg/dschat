@@ -677,6 +677,24 @@ func (s *Store) DeleteSession(sessionID, caller string) error {
 	return err
 }
 
+// DeleteSessions soft-deletes an explicit set of sessions without ownership
+// checks. It is used by the "delete all conversations" flow, which must also
+// remove sessions currently owned by another device on the same account.
+func (s *Store) DeleteSessions(sessionIDs []string) (int, error) {
+	deleted := 0
+	now := model.NowMS()
+	for _, sessionID := range sessionIDs {
+		res, err := s.db.Exec(`update sessions set deleted_at=?, updated_at=? where id=? and deleted_at=0`, now, now, sessionID)
+		if err != nil {
+			return deleted, err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			deleted++
+		}
+	}
+	return deleted, nil
+}
+
 const DeletedSessionTTL = 7 * 24 * time.Hour
 
 // CleanupExpired hard-deletes soft-deleted sessions whose recovery window has

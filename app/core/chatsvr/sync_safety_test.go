@@ -190,3 +190,35 @@ func TestSendDoesNotWaitForSlowRemoteAppend(t *testing.T) {
 		t.Fatalf("Send() waited %s for remote append", elapsed)
 	}
 }
+
+func TestDeleteAllQueuesExplicitRemoteBatch(t *testing.T) {
+	app, err := New(Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "down", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	app.setSync(NewSync(server.URL, "access", "", time.Now().Add(time.Hour).UnixMilli(), app.deviceID, "zh-CN"))
+	seedSession(t, app, "s1", SyncSynced)
+	seedSession(t, app, "s2", SyncSynced)
+
+	res, err := app.DeleteAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Deleted != 2 {
+		t.Fatalf("deleted = %d, want 2", res.Deleted)
+	}
+	for _, id := range []string{"s1", "s2"} {
+		if _, err := app.store.Session(id); err == nil {
+			t.Fatalf("session %s still exists", id)
+		}
+	}
+	ids := app.pendingDeleteBatchIDs()
+	if len(ids) != 2 {
+		t.Fatalf("pending batch = %v, want both ids", ids)
+	}
+}

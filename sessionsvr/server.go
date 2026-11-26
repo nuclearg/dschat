@@ -99,6 +99,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/sessions.get", s.auth(s.handleGetSession))
 	mux.HandleFunc("POST /v1/sessions.rename", s.auth(s.handleRename))
 	mux.HandleFunc("POST /v1/sessions.delete", s.auth(s.handleDelete))
+	mux.HandleFunc("POST /v1/sessions.deleteAll", s.auth(s.handleDeleteAll))
 	mux.HandleFunc("POST /v1/sessions.turn.append", s.auth(s.handleAppendTurn))
 	mux.HandleFunc("POST /v1/sessions.turn.answer", s.auth(s.handleAppendAnswer))
 	mux.HandleFunc("POST /v1/sessions.claim", s.auth(s.handleClaim))
@@ -527,6 +528,29 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	s.hub.broadcast(map[string]any{"type": "deleted", "sessionId": req.SessionID})
 	writeOK(w, map[string]any{})
+}
+
+func (s *Server) handleDeleteAll(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SessionIDs []string `json:"sessionIds"`
+	}
+	if err := httpx.ReadJSON(w, r, &req); err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	if len(req.SessionIDs) == 0 {
+		writeOK(w, map[string]any{"deleted": 0})
+		return
+	}
+	deleted, err := s.store.DeleteSessions(req.SessionIDs)
+	if err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	for _, sessionID := range req.SessionIDs {
+		s.hub.broadcast(map[string]any{"type": "deleted", "sessionId": sessionID})
+	}
+	writeOK(w, map[string]any{"deleted": deleted})
 }
 
 func (s *Server) handleAppendTurn(w http.ResponseWriter, r *http.Request) {

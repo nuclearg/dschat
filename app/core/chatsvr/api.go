@@ -301,7 +301,7 @@ func (a *App) handleRename(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDeleteAll(w http.ResponseWriter, r *http.Request) {
-	result, err := a.DeleteAllOwned()
+	result, err := a.DeleteAll()
 	if err != nil {
 		apierr.Write(w, err)
 		return

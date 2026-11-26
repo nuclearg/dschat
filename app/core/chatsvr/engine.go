@@ -17,6 +17,7 @@ import (
 const (
 	pendingTitlePrefix  = "pending_title:"
 	pendingDeletePrefix = "pending_delete:"
+	pendingDeleteAllKey = "pending_delete_batch"
 )
 
 func pendingTitleKey(id string) string  { return pendingTitlePrefix + id }
@@ -734,26 +735,99 @@ type DeleteAllResult struct {
 	Failed  int `json:"failed"`
 }
 
-// DeleteAllOwned deletes every local session owned by this device. Sessions
-// owned by another device are read-only and are intentionally left in place.
-func (a *App) DeleteAllOwned() (DeleteAllResult, error) {
+func (a *App) pendingDeleteBatchIDs() []string {
+	raw, err := a.store.KV(pendingDeleteAllKey)
+	if err != nil || raw == "" {
+		return nil
+	}
+	var ids []string
+	if json.Unmarshal([]byte(raw), &ids) != nil {
+		return nil
+	}
+	return ids
+}
+
+func (a *App) setPendingDeleteBatchIDs(ids []string) error {
+	if len(ids) == 0 {
+		return a.store.DeleteKV(pendingDeleteAllKey)
+	}
+	b, err := json.Marshal(ids)
+	if err != nil {
+		return err
+	}
+	return a.store.SetKV(pendingDeleteAllKey, string(b))
+}
+
+func (a *App) addPendingDeleteBatchIDs(ids []string) error {
+	seen := map[string]bool{}
+	merged := make([]string, 0, len(ids))
+	for _, id := range append(a.pendingDeleteBatchIDs(), ids...) {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		merged = append(merged, id)
+	}
+	return a.setPendingDeleteBatchIDs(merged)
+}
+
+// DeleteAll removes every local session, including read-only copies, and
+// queues one explicit remote batch delete. New sessions created after this
+// call are not part of the batch and therefore cannot be wiped by it later.
+func (a *App) DeleteAll() (DeleteAllResult, error) {
 	var result DeleteAllResult
 	sessions, err := a.store.Sessions()
 	if err != nil {
 		return result, err
 	}
+	ids := make([]string, 0, len(sessions))
 	for _, sess := range sessions {
-		if sess.OwnerID != a.deviceID {
-			result.Skipped++
-			continue
+		ids = append(ids, sess.ID)
+	}
+	if a.Sync() != nil && len(ids) > 0 {
+		if err := a.addPendingDeleteBatchIDs(ids); err != nil {
+			return result, err
 		}
-		if err := a.Delete(sess.ID); err != nil {
+	}
+	for _, sess := range sessions {
+		if err := a.deleteLocalSession(sess.ID); err != nil {
 			result.Failed++
 			continue
 		}
+		_ = a.store.DeleteKV(pendingTitleKey(sess.ID))
 		result.Deleted++
 	}
+	if a.Sync() != nil && len(ids) > 0 {
+		go a.flushPendingDeleteBatch()
+	}
+	a.emit(map[string]any{"type": "sessions_changed"})
 	return result, nil
+}
+
+func (a *App) flushPendingDeleteBatch() {
+	s := a.Sync()
+	if s == nil {
+		return
+	}
+	lock := a.sessionSyncLock("__delete_batch__")
+	lock.Lock()
+	defer lock.Unlock()
+	ids := a.pendingDeleteBatchIDs()
+	if len(ids) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(a.baseCtx(), 60*time.Second)
+	defer cancel()
+	if err := s.DeleteSessions(ctx, ids); err != nil {
+		var remote *RemoteError
+		if !(errors.As(err, &remote) && remote.Code == "SessionNotFound") {
+			a.noteSyncError(err)
+			return
+		}
+	}
+	_ = a.setPendingDeleteBatchIDs(nil)
+	a.clearSyncBlocked()
+	a.emit(map[string]any{"type": "sessions_changed"})
 }
 
 func (a *App) Delete(sessionID string) error {
@@ -1201,6 +1275,11 @@ func (a *App) onRemoteEvent(ev RemoteEvent) {
 			}
 			return
 		}
+		for _, id := range a.pendingDeleteBatchIDs() {
+			if id == ev.SessionID {
+				return
+			}
+		}
 	}
 	switch ev.Type {
 	case "hello":
@@ -1239,6 +1318,11 @@ func (a *App) pullSession(ctx context.Context, sessionID string) error {
 	}
 	if pending, _ := a.store.KV(pendingDeleteKey(sessionID)); pending != "" {
 		return nil
+	}
+	for _, id := range a.pendingDeleteBatchIDs() {
+		if id == sessionID {
+			return nil
+		}
 	}
 	lock := a.sessionSyncLock(sessionID)
 	lock.Lock()
@@ -1304,6 +1388,12 @@ func (a *App) syncAll(ctx context.Context) {
 	for _, id := range a.pendingDeleteIDs() {
 		pendingDeletes[id] = true
 		go a.flushPendingDelete(id)
+	}
+	for _, id := range a.pendingDeleteBatchIDs() {
+		pendingDeletes[id] = true
+	}
+	if len(pendingDeletes) > 0 {
+		go a.flushPendingDeleteBatch()
 	}
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()

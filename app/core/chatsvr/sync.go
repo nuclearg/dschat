@@ -714,6 +714,10 @@ func (s *Sync) DeleteSession(ctx context.Context, sessionID string) error {
 	return s.do(ctx, "sessions.delete", map[string]string{"sessionId": sessionID}, nil)
 }
 
+func (s *Sync) DeleteSessions(ctx context.Context, sessionIDs []string) error {
+	return s.do(ctx, "sessions.deleteAll", map[string]any{"sessionIds": sessionIDs}, nil)
+}
+
 // Run consumes the notification stream until ctx is canceled. It reconnects
 // with exponential backoff; every reconnect triggers a full resync callback.
 func (s *Sync) Run(ctx context.Context, onEvent func(RemoteEvent), onReconnect func()) {

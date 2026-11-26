@@ -8,7 +8,7 @@ import (
 	"dschat/app/core/model"
 )
 
-func TestDeleteAllOwnedKeepsOtherDevices(t *testing.T) {
+func TestDeleteAllRemovesAllLocalSessions(t *testing.T) {
 	app, err := New(Config{DataDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
@@ -24,18 +24,17 @@ func TestDeleteAllOwnedKeepsOtherDevices(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	res, err := app.DeleteAllOwned()
+	res, err := app.DeleteAll()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Deleted != 1 || res.Skipped != 1 || res.Failed != 0 {
+	if res.Deleted != 2 || res.Skipped != 0 || res.Failed != 0 {
 		t.Fatalf("result = %+v", res)
 	}
-	if _, err := app.store.Session("owned"); err == nil {
-		t.Fatal("owned session still exists")
-	}
-	if _, err := app.store.Session("other"); err != nil {
-		t.Fatalf("other device's session was deleted: %v", err)
+	for _, id := range []string{"owned", "other"} {
+		if _, err := app.store.Session(id); err == nil {
+			t.Fatalf("session %s still exists", id)
+		}
 	}
 }
 

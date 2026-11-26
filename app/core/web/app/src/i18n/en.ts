@@ -208,16 +208,16 @@ export const en = {
   sessionTakeOver: 'Take over',
   sessionTakingOver: 'Taking over…',
   sessionTakeOverSuccess: 'Chat taken over',
-  deleteAllSessions: 'Delete all local chats',
+  deleteAllSessions: 'Delete all chats',
   deleteAllSessionsDescription:
-    'Only chats owned by this device. Read-only chats owned by other devices are kept; synced chats are also deleted from the data sync service.',
-  deleteAllSessionsModalTitle: 'Delete all local chats?',
+    'Delete all chats on this device and ask the data sync service to remove their copies on other devices. Local attachments and drafts are removed too.',
+  deleteAllSessionsModalTitle: 'Delete all chats?',
   deleteAllSessionsModalDescription:
-    'Only chats owned by this device are deleted. Read-only chats owned by other devices are kept. Synced chats are also deleted from the data sync service; local attachments and drafts are removed.',
+    'This deletes every chat on this device and requests deletion of their copies on other devices through the data sync service. This cannot be undone.',
   historyDeleting: 'Deleting...',
-  historyDeleted: 'Deleted {deleted} local chat(s); skipped {skipped} owned by other devices.',
-  historyDeletePartial: 'Deleted {deleted}, skipped {skipped}, failed {failed}.',
-  historyDeleteNone: 'No local chats to delete.',
+  historyDeleted: 'Deleted {deleted} chat(s); other devices will remove them after syncing.',
+  historyDeletePartial: 'Deleted {deleted}, failed {failed}.',
+  historyDeleteNone: 'No chats to delete.',
   historyDeleteFailed: 'Failed to delete chats. Please try again.',
   upload: 'Upload',
   uploadUnsupportedFormat:
