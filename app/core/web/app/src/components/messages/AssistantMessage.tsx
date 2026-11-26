@@ -45,9 +45,10 @@ export const AssistantMessage = memo(function AssistantMessage({
   const view = useReplyView(message, streaming)
   const panelEntry = useSearchPanel((state) => state.entry)
   const notice = streaming ? null : describeReply(message)
-  // 安全拒绝：已下发的思考与正文按协议丢弃，只显示模板答复。
+  // 安全拒绝仍可能发生在流式输出之后：保留已经显示的正文，再追加拒绝模板。
+  // 思考/工具步骤继续隐藏，避免把未完成的推理当成正式回答。
   const refused = message.stopReason === 'refusal'
-  const answer = refused ? null : view.answer
+  const answer = view.answer
   const responseText = [answer?.text, notice?.presentation === 'response' ? notice.text : null]
     .filter(Boolean)
     .join('\n\n')
