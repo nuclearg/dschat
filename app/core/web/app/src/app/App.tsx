@@ -16,6 +16,8 @@ import { MobileHeader } from '../components/session/MobileHeader.js'
 import { Welcome } from '../components/session/Welcome.js'
 import { ensureApiKey, openSettings } from '../components/settings/settingsDialogState.js'
 import { SettingsDialog } from '../components/settings/SettingsDialog.js'
+import { TakeoverDialog } from '../components/takeover/TakeoverDialog.js'
+import { useTakeover } from '../components/takeover/takeoverState.js'
 import { Toast } from '../components/base/Toast.js'
 import { showToast } from '../components/base/toastState.js'
 import { onUploadNotice } from '../services/attachments.js'
@@ -51,6 +53,7 @@ export const App = () => {
   )
   const activeId = useChatStore((state) => state.activeId)
   const siderWidth = useSettings((state) => state.siderWidth)
+  const openTakeover = useTakeover((state) => state.openTakeover)
 
   usePreventPageScroll(isMobile)
 
@@ -68,6 +71,29 @@ export const App = () => {
   useEffect(stopReadAloud, [activeId])
   // 移动端选中会话、切换布局后收起抽屉
   useEffect(closeMobileSider, [activeId, isMobile])
+
+  useEffect(() => {
+    // Android share target: the native shell stores the shared text and asks
+    // this page to consume it. Other platforms have no bridge.
+    const bridge = (window as unknown as { DschatAndroid?: { takePendingShare?: () => string } })
+      .DschatAndroid
+    if (!bridge?.takePendingShare) {
+      return
+    }
+    const consume = () => {
+      try {
+        const shared = bridge.takePendingShare?.() ?? ''
+        if (shared.trim()) {
+          openTakeover(shared)
+        }
+      } catch {
+        // A stale WebView bridge must never break the chat UI.
+      }
+    }
+    consume()
+    window.addEventListener('dschat:share', consume)
+    return () => window.removeEventListener('dschat:share', consume)
+  }, [openTakeover])
 
   useEffect(() => {
     // 先拿到 chatsvr 的设置，再决定是否弹出 API Key 配置。
@@ -156,6 +182,7 @@ export const App = () => {
         <SearchPanel />
       </div>
       <SettingsDialog />
+      <TakeoverDialog />
       <Toast />
     </>
   )

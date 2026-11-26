@@ -22,6 +22,7 @@ import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.webkit.ConsoleMessage
+import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.ValueCallback
@@ -60,6 +61,7 @@ class MainActivity : Activity() {
 
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var pendingPermissionRequest: PermissionRequest? = null
+    private var pendingShareText: String? = null
 
     private val pollRunnable = Runnable { pollEngine() }
 
@@ -78,9 +80,16 @@ class MainActivity : Activity() {
         updateSystemBarAppearance()
         registerBackCallback()
         requestNotificationPermission()
+        handleShareIntent(intent)
         EngineService.start(this)
         showLoading(getString(R.string.loading))
         startPolling()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleShareIntent(intent)
     }
 
     override fun onResume() {
@@ -118,6 +127,41 @@ class MainActivity : Activity() {
             EngineService.stop(this)
         }
         super.onDestroy()
+    }
+
+    // --------------------------------------------------------------- share
+
+    /** Intent from Android's share sheet: DeepSeek shares text/plain links. */
+    private fun handleShareIntent(intent: Intent?) {
+        val shared = when (intent?.action) {
+            Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
+            Intent.ACTION_VIEW -> intent.dataString
+            else -> null
+        }?.trim()
+        if (shared.isNullOrEmpty()) {
+            return
+        }
+        pendingShareText = shared
+        dispatchPendingShare()
+    }
+
+    private fun dispatchPendingShare() {
+        if (!::webView.isInitialized || lastLoadedUrl == null) {
+            return
+        }
+        webView.evaluateJavascript(
+            "window.dispatchEvent(new CustomEvent('dschat:share'))",
+            null,
+        )
+    }
+
+    private inner class ShareBridge {
+        @JavascriptInterface
+        fun takePendingShare(): String? {
+            val text = pendingShareText
+            pendingShareText = null
+            return text
+        }
     }
 
     // ---------------------------------------------------------------- engine
@@ -301,6 +345,7 @@ class MainActivity : Activity() {
         settings.userAgentString =
             "${settings.userAgentString} DSChatAndroid/${packageVersionName()}"
 
+        webView.addJavascriptInterface(ShareBridge(), "DschatAndroid")
         webView.setBackgroundColor(getColor(R.color.engine_bg))
         if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
             WebView.setWebContentsDebuggingEnabled(true)
@@ -323,7 +368,10 @@ class MainActivity : Activity() {
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
-                if (!pageFailed) showContent()
+                if (!pageFailed) {
+                    showContent()
+                    dispatchPendingShare()
+                }
             }
 
             override fun onReceivedError(

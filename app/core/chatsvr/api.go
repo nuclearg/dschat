@@ -37,6 +37,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sessions/{id}", a.auth(a.handleGetSession))
 	mux.HandleFunc("POST /api/sessions", a.auth(a.handleCreateSession))
 	mux.HandleFunc("POST /api/sessions/import", a.auth(a.handleImportSession))
+	mux.HandleFunc("POST /api/official/share/import", a.auth(a.handleOfficialShareImport))
 	mux.HandleFunc("PATCH /api/sessions/{id}", a.auth(a.handleRename))
 	mux.HandleFunc("DELETE /api/sessions", a.auth(a.handleDeleteAll))
 	mux.HandleFunc("DELETE /api/sessions/{id}", a.auth(a.handleDelete))
@@ -244,6 +245,20 @@ func (a *App) handleClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, 200, map[string]any{"ok": true})
+}
+
+func (a *App) handleOfficialShareImport(w http.ResponseWriter, r *http.Request) {
+	var req OfficialShareImportRequest
+	if err := httpx.ReadJSON(w, r, &req); err != nil {
+		apierr.Write(w, err)
+		return
+	}
+	result, err := a.ImportOfficialShare(r.Context(), req.URL)
+	if err != nil {
+		apierr.Write(w, err)
+		return
+	}
+	httpx.WriteJSON(w, 200, result)
 }
 
 func (a *App) handleImportSession(w http.ResponseWriter, r *http.Request) {

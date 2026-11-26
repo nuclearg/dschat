@@ -51,6 +51,10 @@ type ImportSessionResult struct {
 }
 
 func (a *App) ImportSession(req ImportSessionRequest) (*ImportSessionResult, error) {
+	return a.importSession(req, true)
+}
+
+func (a *App) importSession(req ImportSessionRequest, upload bool) (*ImportSessionResult, error) {
 	if len(req.Messages) == 0 {
 		return nil, apierr.New(400, "EMPTY_IMPORT", "archive contains no messages")
 	}
@@ -211,7 +215,7 @@ func (a *App) ImportSession(req ImportSessionRequest) (*ImportSessionResult, err
 
 	synced := false
 	warning := ""
-	if a.Sync() != nil {
+	if upload && a.Sync() != nil {
 		if err := a.syncImportedSession(&sess, turns); err != nil {
 			a.noteSyncError(err)
 			warning = err.Error()

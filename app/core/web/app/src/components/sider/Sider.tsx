@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslate } from '../../i18n/index.js'
-import { IconPanelLeftOutline16, IconSettingsOutline16, NewChatIcon } from '../base/icons.js'
+import { IconCloudOutline16, IconPanelLeftOutline16, IconSettingsOutline16, NewChatIcon } from '../base/icons.js'
 import { setSiderCollapsed } from '../../services/settings.js'
 import { groupSessions } from '../../services/chat/sessionGroups.js'
 import { newChat, removeSession, useChatStore } from '../../services/chat/store.js'
@@ -11,6 +11,7 @@ import { IconButton } from '../base/IconButton.js'
 import { Modal } from '../base/Modal.js'
 import { showToast } from '../base/toastState.js'
 import { openSettings } from '../settings/settingsDialogState.js'
+import { useTakeover } from '../takeover/takeoverState.js'
 import { closeMobileSider, useMobileSider } from './mobileSiderState.js'
 import { SessionItem } from './SessionItem.js'
 import whaleIcon from '../../assets/whale.png'
@@ -26,6 +27,7 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
   const groups = useMemo(() => groupSessions(sessions, now, t), [sessions, now, t])
   const [deleting, setDeleting] = useState<SessionSummary | null>(null)
   const [deletePending, setDeletePending] = useState(false)
+  const openTakeover = useTakeover((state) => state.openTakeover)
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>
@@ -99,6 +101,19 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
         </div>
       </div>
       <div className={styles.bottom}>
+        <button
+          type="button"
+          className={styles.takeover}
+          onClick={() => {
+            openTakeover()
+            closeMobileSider()
+          }}
+        >
+          <span className={styles.settingsIcon}>
+            <IconCloudOutline16 />
+          </span>
+          <span className={styles.settingsLabel}>{t('takeoverButton')}</span>
+        </button>
         <button type="button" className={styles.settings} onClick={() => openSettings('general')}>
           <span className={styles.settingsIcon}>
             <IconSettingsOutline16 />

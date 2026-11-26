@@ -207,6 +207,15 @@ export const deleteSession = (id: string) =>
 
 export type DeleteAllResult = { deleted: number; skipped: number; failed: number }
 
+export type OfficialShareImportResult = {
+  session: ApiSession
+  synced?: boolean
+  warning?: string
+}
+
+export const importOfficialShare = (url: string) =>
+  request<OfficialShareImportResult>('/api/official/share/import', json('POST', { url }))
+
 export const deleteAllSessions = () =>
   request<DeleteAllResult>('/api/sessions', { method: 'DELETE' })
 

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">DSChat</string>
+    <string name="share_target_label">由dschat接管</string>
     <string name="loading">Starting the local engine…</string>
     <string name="retry">Retry</string>
     <string name="error_engine">The local engine could not start: %1$s</string>
