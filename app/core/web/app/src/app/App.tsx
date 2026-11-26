@@ -14,7 +14,7 @@ import { closeSearchPanel } from '../components/search/searchPanelState.js'
 import { SessionView } from '../components/session/SessionView.js'
 import { MobileHeader } from '../components/session/MobileHeader.js'
 import { Welcome } from '../components/session/Welcome.js'
-import { ensureApiKey, openSettings } from '../components/settings/settingsDialogState.js'
+import { closeSettings, ensureApiKey, openSettings, useSettingsDialog } from '../components/settings/settingsDialogState.js'
 import { SettingsDialog } from '../components/settings/SettingsDialog.js'
 import { TakeoverDialog } from '../components/takeover/TakeoverDialog.js'
 import { useTakeover } from '../components/takeover/takeoverState.js'
@@ -24,7 +24,7 @@ import { onUploadNotice } from '../services/attachments.js'
 import { Button } from '../components/base/Button.js'
 import { stopReadAloud } from '../services/speech/readAloud.js'
 import { CollapsedSider } from '../components/sider/CollapsedSider.js'
-import { closeMobileSider } from '../components/sider/mobileSiderState.js'
+import { closeMobileSider, useMobileSider } from '../components/sider/mobileSiderState.js'
 import { MobileSider, Sider } from '../components/sider/Sider.js'
 import { SiderSplitter } from '../components/sider/SiderSplitter.js'
 import styles from './App.module.css'
@@ -71,6 +71,27 @@ export const App = () => {
   useEffect(stopReadAloud, [activeId])
   // 移动端选中会话、切换布局后收起抽屉
   useEffect(closeMobileSider, [activeId, isMobile])
+
+  useEffect(() => {
+    // Android predictive back/edge swipe first asks the web app to close the
+    // topmost mobile surface. Returning false lets the native shell pop WebView
+    // history or exit as usual.
+    const bridge = window as unknown as { DschatAndroidBack?: () => boolean }
+    bridge.DschatAndroidBack = () => {
+      if (useSettingsDialog.getState().open) {
+        closeSettings()
+        return true
+      }
+      if (isMobile && useMobileSider.getState().open) {
+        closeMobileSider()
+        return true
+      }
+      return false
+    }
+    return () => {
+      delete bridge.DschatAndroidBack
+    }
+  }, [isMobile])
 
   useEffect(() => {
     // Android share target: the native shell stores the shared text and asks

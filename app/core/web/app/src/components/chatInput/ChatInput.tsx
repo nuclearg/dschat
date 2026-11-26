@@ -33,6 +33,7 @@ import { ACCEPT, useUploads } from '../../services/attachments.js'
 import { DraftAttachments } from './DraftAttachments.js'
 import { useVoiceInput } from './useVoiceInput.js'
 import { VoiceButton } from './VoiceButton.js'
+import { VoiceOverlay } from './VoiceOverlay.js'
 import { Spectrum } from './Spectrum.js'
 import { useTranslate } from '../../i18n/index.js'
 import { blockedStatusText } from '../sider/syncStatus.js'
@@ -68,6 +69,10 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
       : null
   const readOnly = !!session?.readOnly
   const [claiming, setClaiming] = useState(false)
+  const sendRef = useRef<() => void>(() => {})
+  const voiceStartY = useRef<number | null>(null)
+  const voiceCancelRef = useRef(false)
+  const [voiceCancelled, setVoiceCancelled] = useState(false)
   const isMobile = useIsMobile()
   const search = useSettings((state) => state.search)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -118,7 +123,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   )
   const dragging = useFileDrop(acceptFiles)
 
-  /** 转写结果插入到光标处，并把光标移到插入内容之后 */
+  /** 语音输入：转写结果插入光标处；松手后自动发送（录音浮层提示的语义）。 */
   const voice = useVoiceInput((transcript) => {
     const textarea = textareaRef.current
     const current = getDraft(sessionId).text
@@ -128,6 +133,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
     requestAnimationFrame(() => {
       textarea?.focus({ preventScroll: true })
       textarea?.setSelectionRange(start + transcript.length, start + transcript.length)
+      sendRef.current()
     })
   })
 
@@ -145,6 +151,40 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
 
   // 移动端录音时用频谱替代输入框内容
   const recording = voice.status === 'recording'
+
+  useEffect(() => {
+    if (voice.status !== 'recording') {
+      voiceStartY.current = null
+      voiceCancelRef.current = false
+      setVoiceCancelled(false)
+      return
+    }
+    const onMove = (event: PointerEvent) => {
+      if (voiceStartY.current === null) {
+        return
+      }
+      const cancel = voiceStartY.current - event.clientY > 72
+      voiceCancelRef.current = cancel
+      setVoiceCancelled(cancel)
+    }
+    const onUp = () => {
+      const cancel = voiceCancelRef.current
+      voiceStartY.current = null
+      voiceCancelRef.current = false
+      setVoiceCancelled(false)
+      if (cancel) {
+        voice.cancel()
+      } else {
+        void voice.finish()
+      }
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+  }, [voice.status, voice.cancel, voice.finish])
 
   // 排队、上传中或上传失败的附件都留在输入框，全部上传成功后才能发送
   const canSend = !importingHistory && !streaming && voice.status === 'idle' && draftReady
@@ -181,6 +221,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
       textareaRef.current?.focus()
     }
   }
+  sendRef.current = send
 
   return (
     <div
@@ -191,6 +232,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
         }
       }}
     >
+      {recording ? <VoiceOverlay cancel={voiceCancelled} /> : null}
       {blocked ? (
         <div className={styles.syncBlocked} role="status">
           <div className={styles.syncBlockedTitle}>{blocked.title}</div>
@@ -295,12 +337,39 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
             status={voice.status}
             disabled={!voice.available}
             seconds={voice.seconds}
-            onClick={() => {
-              if (
-                voice.status !== 'idle' ||
-                (!useChatStore.getState().importingHistory && ensureApiKey())
-              ) {
-                void voice.toggle()
+            onPressStart={(event) => {
+              voiceStartY.current = event.clientY
+              voiceCancelRef.current = false
+              setVoiceCancelled(false)
+              if (voice.status === 'idle') {
+                if (
+                  useChatStore.getState().importingHistory ||
+                  !ensureApiKey()
+                ) {
+                  return
+                }
+                void voice.start()
+              } else if (voice.status === 'transcribing') {
+                voice.cancel()
+              }
+            }}
+            onClick={(event) => {
+              // Pointer interaction is handled by onPressStart + window pointerup;
+              // keep keyboard activation working without ending the press early.
+              if (event.detail !== 0) {
+                return
+              }
+              if (voice.status === 'idle') {
+                if (
+                  !useChatStore.getState().importingHistory &&
+                  ensureApiKey()
+                ) {
+                  void voice.start()
+                }
+              } else if (voice.status === 'recording') {
+                void voice.finish()
+              } else {
+                voice.cancel()
               }
             }}
           />

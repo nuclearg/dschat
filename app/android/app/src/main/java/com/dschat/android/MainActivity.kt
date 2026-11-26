@@ -534,6 +534,23 @@ class MainActivity : Activity() {
     }
 
     private fun handleBack() {
+        if (!::webView.isInitialized) {
+            finish()
+            return
+        }
+        // Let the React UI close a sidebar/settings modal before the native
+        // shell pops history or exits. This is what makes an edge-swipe back
+        // gesture close the visible surface instead of leaving the app.
+        webView.evaluateJavascript(
+            "(window.DschatAndroidBack && window.DschatAndroidBack()) === true",
+        ) { handled ->
+            if (handled != "true") {
+                finishOrGoBack()
+            }
+        }
+    }
+
+    private fun finishOrGoBack() {
         val engineStarting = overlay.visibility == View.VISIBLE && EngineService.url == null
         if (!engineStarting && !pageFailed && webView.canGoBack()) {
             webView.goBack()

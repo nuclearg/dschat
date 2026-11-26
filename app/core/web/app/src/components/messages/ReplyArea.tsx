@@ -1,6 +1,6 @@
 import { useTranslate } from '../../i18n/index.js'
 import clsx from 'clsx'
-import { memo, useEffect, useState, type ReactNode } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import {
   IconBrowseOutline16,
   IconBrowseWarningOutline16,
@@ -129,11 +129,10 @@ const StepItem = ({
         streaming && lastBlock?.startedAt !== undefined && lastBlock.endedAt === undefined
       return (
         <ContentItem isLast={isLast} active={thinking}>
-          <Markdown
+          <ThinkingContent
             content={step.blocks.map((block) => block.thinking).join('')}
-            loading={thinking}
             cacheKey={`${message.id}-${step.key}`}
-            disableLink
+            streaming={thinking}
           />
         </ContentItem>
       )
@@ -161,6 +160,54 @@ const StepItem = ({
     default:
       return null
   }
+}
+
+/** 思考内容默认只露最新五行；持续输出时滚到底部，可手动展开。 */
+const ThinkingContent = ({
+  content,
+  cacheKey,
+  streaming,
+}: {
+  content: string
+  cacheKey: string
+  streaming: boolean
+}) => {
+  const t = useTranslate()
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const [expanded, setExpanded] = useState(false)
+  const [overflow, setOverflow] = useState(false)
+
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport) {
+      return
+    }
+    setOverflow(viewport.scrollHeight > 110)
+    if (!expanded) {
+      viewport.scrollTop = viewport.scrollHeight
+    }
+  }, [content, expanded])
+
+  return (
+    <div className={styles.thinking}>
+      <div
+        ref={viewportRef}
+        className={clsx(styles.thinkingViewport, expanded && styles.thinkingViewportExpanded)}
+      >
+        <Markdown content={content} loading={streaming} cacheKey={cacheKey} disableLink />
+      </div>
+      {overflow ? (
+        <button
+          type="button"
+          className={styles.thinkingToggle}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? t('thinkingCollapse') : t('thinkingExpand')}
+        </button>
+      ) : null}
+    </div>
+  )
 }
 
 /** 思考或过程性文字：左侧圆点 + 竖线，小号 markdown */

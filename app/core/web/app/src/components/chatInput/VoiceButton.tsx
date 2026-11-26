@@ -22,7 +22,8 @@ export const VoiceButton = ({
   disabled?: boolean
   /** 本次录音已录秒数，录音中显示在按钮左侧 */
   seconds: number
-  onClick: () => void
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void
+  onPressStart?: (event: React.PointerEvent<HTMLButtonElement>) => void
 }) => {
   const t = useTranslate()
   const recording = status === 'recording'
@@ -49,9 +50,15 @@ export const VoiceButton = ({
           aria-label={label}
           aria-pressed={recording}
           aria-disabled={disabled}
-          onClick={() => {
+          onPointerDown={(event) => {
+            if (!disabled && event.button === 0) {
+              event.preventDefault()
+              onPressStart?.(event)
+            }
+          }}
+          onClick={(event) => {
             if (!disabled) {
-              onClick()
+              onClick(event)
             }
           }}
         >

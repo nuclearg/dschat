@@ -314,3 +314,40 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* 思考正文：默认五行，向上滚动展示最新内容；展开后完整显示 */
+.thinking {
+  min-width: 0;
+}
+
+.thinkingViewport {
+  max-height: 110px;
+  overflow-y: auto;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.thinkingViewportExpanded {
+  max-height: none;
+  overflow: visible;
+}
+
+.thinkingToggle {
+  display: block;
+  margin-top: 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--dsw-alias-brand-primary);
+  }
+}
