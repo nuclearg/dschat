@@ -5,7 +5,7 @@ package desktop
 import (
 	"runtime"
 
-	"github.com/getlantern/systray"
+	"github.com/energye/systray"
 
 	"dschat/app/core/chatsvr"
 )
@@ -28,19 +28,21 @@ func runTray(app *chatsvr.App, open bool) {
 		systray.AddSeparator()
 		mQuit := systray.AddMenuItem("退出", "退出 dschat")
 
-		go func() {
-			for {
-				select {
-				case <-mOpen.ClickedCh:
-					OpenBrowser(app.URL())
-				case <-mSettings.ClickedCh:
-					OpenBrowser(app.URL() + "&settings=1")
-				case <-mQuit.ClickedCh:
-					systray.Quit()
-					return
-				}
-			}
-		}()
+		mOpen.Click(func() { OpenBrowser(app.URL()) })
+		mSettings.Click(func() { OpenBrowser(app.URL() + "&settings=1") })
+		mQuit.Click(func() { systray.Quit() })
+
+		// energye/systray exposes a real tray-icon double-click event. A
+		// single click intentionally does nothing on macOS/Windows; the menu
+		// stays available through right-click.
+		systray.SetOnDClick(func(systray.IMenu) {
+			OpenBrowserNewWindow(app.URL())
+		})
+		systray.SetOnRClick(func(menu systray.IMenu) {
+			_ = menu.ShowMenu()
+		})
+		systray.SetTooltip("dschat · 双击打开新窗口，右键菜单")
+
 		if open {
 			OpenBrowser(app.URL())
 		}
